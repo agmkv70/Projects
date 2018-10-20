@@ -1,0 +1,191 @@
+#if 0
+///FloorTemp///
+//For DS18B20 connected to separate pins (no need to know adresses, means interchangebility):
+
+#include <OneWire.h>
+
+#define MainCycleInterval 60 //изредка 60
+#define ValveMinusPin 6
+#define ValvePlusPin  7
+
+OneWire  TempDS_Boiler(2);  // on pin 2 (a 4.7K resistor is necessary)
+OneWire  TempDS_FloorIn(3);  // on pin 3 (a 4.7K resistor is necessary)
+OneWire  TempDS_FloorOut(4);  // on pin 4 (a 4.7K resistor is necessary)
+//OneWire  TempDS_Ambient(5);  // on pin 5 (a 4.7K resistor is necessary)
+float tempBoiler=20;
+float tempFloorIn=20;
+float tempFloorOut=20;
+//float tempAmbient=20;
+
+float targetFloorOutTemp = 21;
+float maxFloorInTemp     = 29;
+float maxFloorInOutDiff  = 8;
+int minMoveStepSec = 1;
+int maxMoveSec = 60;
+
+unsigned long __time_seconds_OverflowOffset=0; //(4294967.295 seconds)*NOverflow - служебное для учета переполнения АВРского счетчика
+unsigned long cur_time_seconds_noOffset=0; //без смещения секунды - служебное для ловли переполнения
+unsigned long cur_time_seconds; //переполнение раз в 50000 суток.
+unsigned long last_time_seconds_MainCycleStart=0;
+unsigned long last_time_seconds_TempConv; //last time in seconds, when temp sensors where commanded to start conversion
+unsigned long last_time_seconds; //to catch new second
+byte itsReadTempTime=0;
+
+int ValveMotorState=0; //-secTillOff, +secTillOff
+
+void TempDS_AllStartConvertion() {
+  TempDS_Boiler.reset();
+  TempDS_Boiler.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  TempDS_Boiler.write(0x44); // start conversion
+  TempDS_FloorIn.reset();
+  TempDS_FloorIn.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  TempDS_FloorIn.write(0x44); // start conversion
+  TempDS_FloorOut.reset();
+  TempDS_FloorOut.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  TempDS_FloorOut.write(0x44); // start conversion
+  //TempDS_Ambient.reset();
+  //TempDS_Ambient.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  //TempDS_Ambient.write(0x44); // start conversion
+}
+
+byte GetTemp(OneWire *ds, String dname, float *temp) { //interface object and sensor name, returns 1 if OK
+  byte data[12];
+
+  ds->reset(); //перезагрузка с отключением питания (делаем перед запросом на замер, тут не надо)
+  ds->write(0xCC); //Skip ROM - next command to all //ds.select(addr);
+  ds->write(0xBE); //Read Scratchpad
+
+  //Serial.print(dname);
+  //Serial.print(" :");
+  for (byte i = 0; i < 9; i++) {           // we need 9 bytes
+    data[i] = ds->read();
+    //Serial.print(data[i], HEX);
+    //Serial.print(" ");
+  }
+  if(data[8]!=OneWire::crc8(data, 8)) {
+	Serial.println("");
+	Serial.print("!ERROR: temp sensor CRC failure - ");
+	Serial.println(dname);
+	return 0; //crc failure
+  }
+
+  // Calculate temperature value
+  *temp = (float)( (data[1] << 8) + data[0] )*0.0625F;
+
+  Serial.print(" ");
+  Serial.print(*temp);
+
+  return 1; //OK
+}
+
+////////////////////////////////////////////////SETUP///////////////////////////
+void setup(void) {
+  cur_time_seconds = millis()/1000;
+  Serial.begin(115200);
+
+  TempDS_AllStartConvertion();
+  last_time_seconds_TempConv = cur_time_seconds;
+
+  pinMode(13,OUTPUT);
+  digitalWrite(13,LOW);
+
+  //turn off relays:
+  pinMode(ValveMinusPin,OUTPUT);
+  digitalWrite(ValveMinusPin,HIGH);
+  pinMode(ValvePlusPin,OUTPUT);
+  digitalWrite(ValvePlusPin,HIGH);
+}
+
+////////////////////////////////////////////////LOOP////////////////////////////
+void loop(void) {
+  unsigned long __cur_time_seconds = millis()/1000;
+  if(__cur_time_seconds < cur_time_seconds_noOffset) { //если сбросилось время, то в смещение добавить максимум из предыдущего замера
+	  __time_seconds_OverflowOffset = __time_seconds_OverflowOffset + cur_time_seconds_noOffset;
+  }
+  cur_time_seconds_noOffset = __cur_time_seconds;
+  cur_time_seconds = __cur_time_seconds + __time_seconds_OverflowOffset;
+
+  if(cur_time_seconds!=last_time_seconds){
+    //Serial.print("s="); Serial.println(cur_time_seconds);
+
+    //increment of decrement seconds
+    if(ValveMotorState!=0){
+      if(ValveMotorState < 0) ValveMotorState++;
+      if(ValveMotorState > 0) ValveMotorState--;
+      if(ValveMotorState == 0){ //turn off all relays
+        digitalWrite(ValveMinusPin,HIGH);
+        digitalWrite(ValvePlusPin,HIGH);
+      }
+    }
+
+    last_time_seconds = cur_time_seconds;
+  }else{
+  //   return;
+  }
+
+  if( cur_time_seconds >= last_time_seconds_MainCycleStart + MainCycleInterval){ //START MAIN CYCLE with a command to convert temperature:
+	  last_time_seconds_MainCycleStart = cur_time_seconds;
+	  TempDS_AllStartConvertion();
+	  last_time_seconds_TempConv = cur_time_seconds;
+    itsReadTempTime=1;
+    Serial.print("StartConv at ");
+    Serial.println(cur_time_seconds);
+  }
+
+  if( cur_time_seconds >= last_time_seconds_TempConv + 1 && itsReadTempTime){ //its time to get temperature:
+    itsReadTempTime=0; //to not get into here again till next cycle
+    //Serial.println("getTemp");
+
+	  int ErrorMeasTemp=0;
+	  if( !GetTemp(&TempDS_Boiler,"BOILER",&tempBoiler) ){
+		 ErrorMeasTemp++;
+	  }
+	  if( !GetTemp(&TempDS_FloorIn,"FLOORIN",&tempFloorIn) ){
+		 ErrorMeasTemp++;
+	  }
+	  if( !GetTemp(&TempDS_FloorOut,"FLOOROUT",&tempFloorOut) ){
+		 ErrorMeasTemp++;
+	  }
+	  //if( !GetTemp(&TempDS_Ambient,"AMBIENT",&tempAmbient) ){
+		// ErrorMeasTemp++;
+	  //}
+    Serial.println();
+
+	  if(!ErrorMeasTemp){
+
+		  //where to move the valve:
+		  float needChangeOutTemp = targetFloorOutTemp - tempFloorOut;
+
+		  float needChangeSecondsOut = needChangeOutTemp*3;
+
+		  if(tempFloorIn >= maxFloorInTemp && needChangeSecondsOut>0){
+			  needChangeSecondsOut = 0;
+		  }
+
+		  if(tempFloorIn-tempFloorOut >= maxFloorInOutDiff && needChangeSecondsOut>0){
+			  needChangeSecondsOut = 0;
+		  }
+
+		  if(tempFloorIn-tempFloorOut > maxFloorInOutDiff){
+			  needChangeSecondsOut = -(maxFloorInOutDiff - (tempFloorIn-tempFloorOut))*3;
+		  }
+
+      ValveMotorState = needChangeSecondsOut * minMoveStepSec;
+      Serial.print("motor = ");
+      Serial.println(ValveMotorState);
+      Serial.println(needChangeSecondsOut);
+      //manage valve:
+      if(ValveMotorState < 0){
+        digitalWrite(ValveMinusPin,LOW); //-on
+        digitalWrite(ValvePlusPin,HIGH); //+off
+      }else if(ValveMotorState > 0){
+        digitalWrite(ValveMinusPin,HIGH);//-off
+        digitalWrite(ValvePlusPin,LOW);  //+on
+      }
+	  }
+  }
+
+
+}
+
+#endif
