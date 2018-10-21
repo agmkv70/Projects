@@ -14,7 +14,7 @@
 
 #define LED_PIN 13
 
-OneWire  TempDS_Outdoor(2);  // on pin 2 (a 4.7K resistor is necessary)
+OneWire  TempDS_Outdoor(3); //3 new board nano // on pin 2 (Uno)(a 4.7K resistor to 5V is necessary)
 
 int MainCycleInterval=60; //изредка 60
 float tempOutdoor=0;
@@ -53,7 +53,7 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
   *temp = (float)( (data[1] << 8) + data[0] )*0.0625F;
 
   #ifdef testmode
-  Serial.print(" ");
+  Serial.print(" t=");
   Serial.print(*temp);
   #endif
 
@@ -107,6 +107,11 @@ void MainCycle_ReadTempEvent(){
     tempOutdoor = (float)((long)((tempOutdoor + 0.05) * 10)) / 10.0;
     //Serial.println(tempOutdoor);
     addCANMessage2Queue(CAN_MSG_FILTER_STATIST | CAN_Unit_FILTER_ESPWF, VPIN_OutdoorTemp, tempOutdoor);
+  }else{
+    #ifdef testmode
+    Serial.print("Error measuring temp. ErrorMeasTemp = ");
+    Serial.println(ErrorMeasTemp);
+    #endif
   }
 }
 
