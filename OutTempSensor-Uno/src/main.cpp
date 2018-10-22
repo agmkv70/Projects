@@ -7,16 +7,16 @@
 #include <OneWire.h>
 
 #define CAN_PIN_INT 9      // INT = pin 9
-#define CAN_PIN_CS 10      // CS = pin 10
+#define CAN_PIN_CS 10      // CS = pin 10 
 
-#include <NIK_can.h>
 #include <NIK_defs.h>
+#include <NIK_can.h>
 
 #define LED_PIN 13
 
 OneWire  TempDS_Outdoor(3); //3 new board nano // on pin 2 (Uno)(a 4.7K resistor to 5V is necessary)
 
-int MainCycleInterval=60; //изредка 60
+int MainCycleInterval=5; //изредка 60
 float tempOutdoor=0;
 float tempOutdoor_calibrationOffset=0.5;
 
@@ -105,8 +105,9 @@ void MainCycle_ReadTempEvent(){
     tempOutdoor += tempOutdoor_calibrationOffset;
     //Serial.println(tempOutdoor);
     tempOutdoor = (float)((long)((tempOutdoor + 0.05) * 10)) / 10.0;
+    //Serial.print("sending ");
     //Serial.println(tempOutdoor);
-    addCANMessage2Queue(CAN_MSG_FILTER_STATIST | CAN_Unit_FILTER_ESPWF, VPIN_OutdoorTemp, tempOutdoor);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_STATIST, VPIN_OutdoorTemp, tempOutdoor);
   }else{
     #ifdef testmode
     Serial.print("Error measuring temp. ErrorMeasTemp = ");
@@ -143,13 +144,16 @@ void setup(void) {
     Serial.println("Error Initializing CAN bus driver MCP2515...");
   
   //initialize filters Masks(0-1),Filters(0-5):
-  unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
-  unsigned long filt = (0x0100L | CAN_Unit_FILTER_OUTDT)<<16;	//0x04	0x01040000;
+  unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
+  unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
+  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_STATIST)<<16;	//0x04	0x01040000;
   CAN0.init_Mask(0,0,mask);                // Init first mask...
-  CAN0.init_Filt(0,0,filt);                // Init first filter...
-  //CAN0.init_Filt(1,0,filt);                // Init second filter...
-  //CAN0.init_Mask(1,0,mask);                // Init second mask...
-  //CAN0.init_Filt(2,0,filt);                // Init third filter...
+  CAN0.init_Filt(0,0,filt0);                // Init first filter...
+  #ifdef testmode
+  CAN0.init_Filt(1,0,filt1);                // Init second filter...
+  #endif
+  CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
+  CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
   //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
   //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
   //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
