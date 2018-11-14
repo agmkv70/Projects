@@ -16,7 +16,7 @@
 
 OneWire  TempDS_Outdoor(3); //3 new board nano // on pin 2 (Uno)(a 4.7K resistor to 5V is necessary)
 
-int MainCycleInterval=5; //изредка 60
+int MainCycleInterval=5; //5 это тестирование датчиков, а ставим не чаще 60
 float tempOutdoor=0;
 float tempOutdoor_calibrationOffset=0.5;
 
@@ -64,6 +64,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
 			STATUS = (int)vPinValueFloat;
+      EEPROM_storeValues();
 			break;
 		//case VPIN_SetMainCycleInterval:
 		//	if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
@@ -88,6 +89,18 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	return 1;
 }
 
+void EEPROM_storeValues(){
+  EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
+  EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
+}
+void EEPROM_restoreValues(){
+  STATUS = EEPROM.read(VPIN_STATUS);
+  int aNewInterval = EEPROM.read(VPIN_MainCycleInterval)*10;
+  if(aNewInterval != 0){
+    MainCycleInterval = aNewInterval;
+  }
+}
+
 //////////////////////////////////////////////////////////////////MAIN cycle:
 void MainCycle_ReadTempEvent(){
 
@@ -107,7 +120,7 @@ void MainCycle_ReadTempEvent(){
     tempOutdoor = (float)((long)((tempOutdoor + 0.05) * 10)) / 10.0;
     //Serial.print("sending ");
     //Serial.println(tempOutdoor);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_STATIST, VPIN_OutdoorTemp, tempOutdoor);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorTemp, tempOutdoor);
   }else{
     #ifdef testmode
     Serial.print("Error measuring temp. ErrorMeasTemp = ");
@@ -134,6 +147,9 @@ void MainCycle_StartEvent(){
 void setup(void) {
   Serial.begin(115200);
 
+  EEPROM_restoreValues();
+  //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
+    
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
 

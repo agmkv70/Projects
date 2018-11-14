@@ -5,6 +5,7 @@
 #include <mcp_can.h>
 #include <SPI.h>
 #include <QueueList.h>
+#include <EEPROM.h>
 
 //#define testmode
 
@@ -204,9 +205,47 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat);
   //	return 1;
 //}
 
+void EEPROM_WriteInt(int p_address, int p_value){
+  byte lowByte = ((p_value >> 0) & 0xFF);
+  byte highByte = ((p_value >> 8) & 0xFF);
+
+  EEPROM.write(p_address, lowByte);
+  EEPROM.write(p_address + 1, highByte);
+}
+unsigned int EEPROM_ReadInt(int p_address){
+  byte lowByte = EEPROM.read(p_address);
+  byte highByte = EEPROM.read(p_address + 1);
+
+  return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
+}
+
+void EEPROM_storeValuesOnTimer();
+// {  EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
+//   EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
+//   EEPROM.update(VPIN_SetPWMch1,(unsigned char)PWMch1);
+//   EEPROM.update(VPIN_SetPWMch2,(unsigned char)PWMch2);
+//   EEPROM.update(VPIN_SetPWMch3,(unsigned char)PWMch3);
+//   EEPROM.update(VPIN_SetPWMch4,(unsigned char)PWMch4);
+// }
+void EEPROM_restoreValues();
+//{  STATUS = EEPROM.read(VPIN_STATUS);
+//  
+//  int aNewInterval = EEPROM.read(VPIN_MainCycleInterval)*10;
+//  if(aNewInterval != 0){
+//    MainCycleInterval = aNewInterval;
+//  }
+//  
+//  PWMch1 = EEPROM.read(VPIN_SetPWMch1);
+//  PWMch2 = EEPROM.read(VPIN_SetPWMch2);
+//  PWMch3 = EEPROM.read(VPIN_SetPWMch3);
+//  PWMch4 = EEPROM.read(VPIN_SetPWMch4);
+//}
+
 //////////////////////////////////////////////////SETUP///////////////////////////
     //void setup(void) {
-    //   //#ifdef testmode
+    //   EEPROM_restoreValues();
+    //   timer.setInterval(1000L*600L, EEPROM_storeValuesOnTimer); //once in 10 min remember critical values
+    //#ifdef testmode
     //   Serial.begin(115200);
     //   //#endif
     //
