@@ -104,7 +104,9 @@ void sendNextCANMessage(){
 void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFloat){
   if(CANQueue.count()>=CANQueueMaxLength){
     CANQueueError = CANQueueErrorOverflow;
+    #ifdef testmode
     Serial.println("Can't add to queue: CAN queue overflow!");
+    #endif
     return;
   }
   #ifdef testmode
@@ -271,7 +273,7 @@ void EEPROM_restoreValues();
     //   #ifdef testmode
     //   CAN0.setMode(MCP_LOOPBACK);
     //   #endif
-    //   pinMode(CAN0_INT, INPUT);  // Configuring CAN0_INT pin for input
+    //   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
     //
     //   mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
     //}

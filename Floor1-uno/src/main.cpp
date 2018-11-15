@@ -2,68 +2,14 @@
 //For DS18B20 connected to separate pins (no need to know adresses, means interchangebility):
 
 #include <OneWire.h>
-#include <SimpleTimer.h>
-#include <mcp_can.h>
-#include <SPI.h>
-#include <QueueList.h>
 
 //#define testmode
 
-#define CAN0_INT 9      // INT = pin 2
-MCP_CAN CAN0(10);       // CS  = pin 10
+#define CAN_PIN_INT 9    
+#define CAN_PIN_CS 10 
 
-unsigned long rxId;
-unsigned char dataLen = 0;
-unsigned char rxBuf[8];
-//filter message types:
-#define CAN_MSG_MASK           0xF0
-#define CAN_MSG_FILTER_UNITCMD 0x80  //command for special unit
-#define CAN_MSG_FILTER_UNITINF 0x40  //some info for special unit
-#define CAN_MSG_FILTER_INF     0x20  //some info for everyone who wants it (e.g. outer temperature)
-#define CAN_MSG_FILTER_STATIST 0x10  //non-critical statistics
-//receive only messages to this unit - include recever id:
-#define CAN_Unit_MASK         0x0F
-#define CAN_Unit_FILTER_KUHFL 0x01 //Floor temperature tegulation unit
-#define CAN_Unit_FILTER_ESPWF 0x02 //ESP8266 WiFi-CAN bridge
-#define CAN_Unit_FILTER_ELCT1 0x03 //Electric power control
-#define CAN_Unit_FILTER_OUTDT 0x04 //Unit for outdoor temperature
-
-#define Status_Standby	1
-#define Status_Auto1	  2 //full auto (tempTargetFloorOut)
-#define Status_Auto2	  3 //semi-auto (ManualFloorIn)
-#define Status_Manual	  4 //manual valve
-#define Status_Warning  5
-#define Status_Error	  6
-int STATUS = Status_Auto2;//Status_Manual;
-
-#define VPIN_STATUS				0
-#define VPIN_ErrCode	  	1
-#define VPIN_Boiler				2
-#define VPIN_FloorIn			3
-#define VPIN_ManualFloorIn		4 	//semi-auto
-#define VPIN_FloorOut			5
-#define VPIN_tempTargetFloorOut	6	//full auto
-#define VPIN_ManualMotorValveMinus	7 	//manual -
-#define VPIN_ManualMotorValvePlus	8 	//manual +
-#define VPIN_MotorValveMinus	9 		//unit's decision to move - (in automatic mode it's made automatically)
-#define VPIN_MotorValvePlus		10 		//unit's decision to move + (in automatic mode it's made automatically)
-#define VPIN_MainCycleInterval  11
-#define VPIN_SetMainCycleInterval  12
-
-#define VPIN_OutdoorTemp  13 //other Uno module on CAN
-
-#define VPIN_SetBoilerPowerPeriodMinutes  14
-#define VPIN_BoilerPowerOnOff 15
-#define VPIN_BoilerPower 16
-#define VPIN_BoilerPID_Kp 17 
-#define VPIN_BoilerPID_Ki 18 
-#define VPIN_BoilerPID_Kd 19 
-#define VPIN_BoilerPID_P 20 //proportional
-#define VPIN_BoilerPID_I 21 //integral
-#define VPIN_BoilerPID_D 22 //differential
-#define VPIN_BoilerTargetTemp 23
-#define VPIN_SetBoilerPID_Isum_Zero 24
-#define VPIN_BoilerTargetTempGraph 25
+#include <NIK_defs.h>
+#include <NIK_can.h>
 
 #define ValveMinusPin 6
 #define ValvePlusPin  7
@@ -99,15 +45,9 @@ unsigned long Valve_OneMoveStepMillis = 1000L;
 float maxMoveSec = 10;
 float minValveStep = 1;
 float cumulatedUndersteps = 0;
+int ErrorMeasTemp=0; //flag of temp sensor lag - don't change state if can't read inputs properly
 
-SimpleTimer timer;
 int mainTimerId, boilerPWMTimerId;
-
-struct CANMessage{ unsigned char vPinNumber; float vPinValueFloat; byte nTries; };
-int timerIntervalForNextSendCAN=0;
-int CANSendError=0;
-QueueList <CANMessage> CANQueue;
-void addCANMessage2Queue(unsigned char vPinNumber, float vPinValueFloat);
 
 float fround(float r, byte dec){
 	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
@@ -118,30 +58,32 @@ float fround(float r, byte dec){
 
 void BoilerPIDEvaluation(){
 	float delta = BoilerTargetTemp - tempBoiler;
-	BoilerPID_Isum = BoilerPID_Isum + delta;
+	float tmpBoilerPID_Isum = BoilerPID_Isum + delta;
 
 	float P = BoilerPID_Kp * delta;
-	float I = BoilerPID_Ki * BoilerPID_Isum;
+	float I = BoilerPID_Ki * tmpBoilerPID_Isum;
 	float D = BoilerPID_Kd * (delta - BoilerPID_prevDelta);
 	BoilerPID_prevDelta = delta;
 
   BoilerPower = BoilerPower + P + I + D;
 	
-	if(BoilerPower<0) BoilerPower=0;
-	else if(BoilerPower>10) BoilerPower=10;
+	if(BoilerPower<=0) BoilerPower=0;
+	else if(BoilerPower>=10) BoilerPower=10;
+	else BoilerPID_Isum = tmpBoilerPID_Isum; //sum Integral part of PID only if our result is not saturated
 
-	addCANMessage2Queue(VPIN_BoilerPID_P, fround(P,2));
-	addCANMessage2Queue(VPIN_BoilerPID_I, fround(I,2));
-	addCANMessage2Queue(VPIN_BoilerPID_D, fround(D,2));
-	addCANMessage2Queue(VPIN_BoilerPower, fround(BoilerPower,1));
-	addCANMessage2Queue(VPIN_BoilerTargetTempGraph, fround(BoilerTargetTemp,1));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_P, fround(P,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_I, fround(I,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_D, fround(D,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPower, fround(BoilerPower,1));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerTargetTempGraph, fround(BoilerTargetTemp,1));
 }
 
 void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	long millisFromStart = millis()-BoilerPWMCycleStart;
 		
 	if( millisFromStart >= BoilerPeriodMillis ){ //time to START:
-		BoilerPIDEvaluation(); //once: on boiler pwm cycle start
+		if( !ErrorMeasTemp )
+			BoilerPIDEvaluation(); //once: on boiler pwm cycle start and only if temperature is really read
 	  BoilerPWMCycleStart = millis();
 		millisFromStart=0;
 	}
@@ -154,12 +96,12 @@ void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	if(BoilerPowerCurrentStateOnOff==0){ //we are off - we can only turn on:
 		if( millisFromStart < millisOn ){ //time to START:
 			if(millisOn > 0) BoilerPowerCurrentStateOnOff=1;
-			addCANMessage2Queue(VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
+			addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
 		}
 	}else{ //BoilerPowerCurrentStateOnOff==1 //we are ON - we can only turn off:
 			if( millisFromStart >= millisOn ){ //time to TURN OFF:
 				if(millisOn < BoilerPeriodMillis)	BoilerPowerCurrentStateOnOff=0;
-				addCANMessage2Queue(VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
+				addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
 			}
 	}
 
@@ -212,10 +154,12 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
     //Serial.print(" ");
   }
   if(data[8]!=OneWire::crc8(data, 8)) {
-	Serial.println("");
-	Serial.print("!ERROR: temp sensor CRC failure - ");
-	Serial.println(dname);
-	return 0; //crc failure
+		#ifdef testmode
+		Serial.println();
+		Serial.print("!ERROR: temp sensor CRC failure - ");
+		Serial.println(dname);
+		#endif
+		return 0; //crc failure
   }
 
   // Calculate temperature value
@@ -229,65 +173,6 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
   return 1; //OK
 }
 void MainCycle_ReadTempEvent(); //declaration
-
-char sendVPinCAN(unsigned char vPinNumber, float vPinValueFloat){
-
-	*rxBuf = vPinNumber;
-	*(float*)(rxBuf+1) = vPinValueFloat;
-
-	// send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
-	byte sndStat = CAN0.sendMsgBuf(0x100 //| CAN_MSG_FILTER_STATIST | CAN_Unit_FILTER_KUHFL
-    , 0, 1+sizeof(float), rxBuf);
-	if(sndStat == CAN_OK){
-		//Serial.println("Message Sent Successfully!");
-	} else {
-		Serial.print("Error Sending Message by CAN bus!.. pin=");
-    Serial.println(vPinNumber);
-    return 0;
-	}
-  return 1;
-}
-
-//SENDNEXT ////////////////////////////////////////////////////////////////////////////
-void sendNextCANMessage(){ 
-
-  if( CANQueue.isEmpty() ){
-    timerIntervalForNextSendCAN=0;
-    return; //nothing to send is also good
-  }
-
-  //queue is not empty:
-  CANMessage mes = CANQueue.pop();
-  
-  char res = sendVPinCAN( mes.vPinNumber, mes.vPinValueFloat );
-
-  if(res == CAN_OK){
-    ;//no pushing back = drop this message
-  }else{
-    mes.nTries++;
-		if( mes.nTries > 10 ){
-      //no pushing back = drop this message
-      CANSendError = res;
-		}else{
-			CANQueue.push(mes);
-		}
-	}
-
-  if( CANQueue.isEmpty() ){
-    timerIntervalForNextSendCAN=0;
-  }else{ //not empty - try again soon:
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //5 millis try interval
-  }
-}
-
-//ADD /////////////////////////////////////////////////////////////////////////////////
-void addCANMessage2Queue(unsigned char vPinNumber, float vPinValueFloat){ 
-  CANQueue.push( CANMessage{ vPinNumber, vPinValueFloat, 0} );
-  if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout(5,sendNextCANMessage); //5 millis try interval
-  }
-  
-}
 
 void MainCycle_StartEvent() {
 
@@ -306,7 +191,7 @@ void MainCycle_StartEvent() {
 
 void MainCycle_ReadTempEvent() {
 
-	int ErrorMeasTemp=0;
+	ErrorMeasTemp=0;
 	if( !TempDS_GetTemp(&TempDS_Boiler,"BOILER",&tempBoiler) ){
 	 ErrorMeasTemp++;
 	}
@@ -326,10 +211,9 @@ void MainCycle_ReadTempEvent() {
   tempFloorIn += offsetFloorIn;
   tempFloorOut += offsetFloorOut;
 
-
-	addCANMessage2Queue(VPIN_Boiler,fround(tempBoiler,1)); //rounded 0.0 value
-	addCANMessage2Queue(VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
-	addCANMessage2Queue(VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Boiler,fround(tempBoiler,1)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
 
   if(!ErrorMeasTemp){
 	    float needChangeInTemp=0, needChangeSeconds=0;
@@ -405,13 +289,11 @@ void MainCycle_ReadTempEvent() {
 		  }
 		}
 	}
-	
 	//addCANMessage2Queue(VPIN_BoilerPower,fround(BoilerPower,2); //rounded 0.00 value
 }
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat); //decl
 
 void checkReadCAN() {
-  if(digitalRead(CAN0_INT)){ //HIGH = no CAN received messages in buffer
+  if(digitalRead(CAN_PIN_INT)){ //HIGH = no CAN received messages in buffer
 	  return;
   }
 	#ifdef testmode
@@ -478,6 +360,13 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 		case VPIN_BoilerTargetTemp: BoilerTargetTemp = vPinValueFloat; break;
 		case VPIN_SetBoilerPID_Isum_Zero: BoilerPID_Isum=0; break;
 		default:
+			#ifdef testmode
+			Serial.print("! Warning: received unneeded CAN message: VPIN=");
+			Serial.print(vPinNumber);
+			Serial.print(" FloatValue=");
+			Serial.print(vPinValueFloat);
+			Serial.println();
+      #endif
 			return 0;
 	}
 	return 1;
@@ -485,6 +374,8 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
+	STATUS = Status_Manual; //init
+
   #ifdef testmode
 	Serial.begin(115200);
 	#endif
@@ -511,23 +402,27 @@ void setup(void) {
 	}
 
   //initialize filters Masks(0-1),Filters(0-5):
-  //CAN0.init_Mask(0,0,0x010F0000);                // Init first mask...
-  //CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-  //CAN0.init_Filt(1,0,0x01010000);                // Init second filter...
-  //CAN0.init_Mask(1,0,0x010F0000);                // Init second mask...
-  //CAN0.init_Filt(2,0,0x01030000);                // Init third filter...
-  //CAN0.init_Filt(3,0,0x01040000);                // Init fouth filter...
-  //CAN0.init_Filt(4,0,0x01060000);                // Init fifth filter...
-  //CAN0.init_Filt(5,0,0x01070000);                // Init sixth filter...
+  unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
+  unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
+  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
+  CAN0.init_Mask(0,0,mask);                // Init first mask...
+  CAN0.init_Filt(0,0,filt0);                // Init first filter...
+  #ifdef testmode
+  CAN0.init_Filt(1,0,filt1);                // Init second filter...
+  #endif
+  CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
+  CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
+  //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
+  //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
+  //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
   
 	#ifdef testmode
 	CAN0.setMode(MCP_LOOPBACK);
 	#endif
 	#ifndef testmode
-  CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data.
+  CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
 	#endif
-  pinMode(CAN0_INT, INPUT);  // Configuring CAN0_INT pin for input
-
+  pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
   mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 	delay(100); //for two timers not at once
@@ -537,8 +432,6 @@ void setup(void) {
 
 ////////////////////////////////////////////////LOOP////////////////////////////
 void loop(void) {
-
   timer.run();
   checkReadCAN();
-
 }

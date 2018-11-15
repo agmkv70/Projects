@@ -22,4 +22,18 @@ int STATUS = Status_Auto1;
 #define VPIN_MotorValvePlus		10 		//unit's decision to move + (in automatic mode it's made automatically)
 #define VPIN_MainCycleInterval  11
 #define VPIN_SetMainCycleInterval  12
-#define VPIN_OutdoorTemp  13  //Outdoor temperature sensor
+
+#define VPIN_OutdoorTemp  13 //other module on CAN
+
+#define VPIN_SetBoilerPowerPeriodMinutes  14
+#define VPIN_BoilerPowerOnOff 15
+#define VPIN_BoilerPower 16
+#define VPIN_BoilerPID_Kp 17 
+#define VPIN_BoilerPID_Ki 18 
+#define VPIN_BoilerPID_Kd 19 
+#define VPIN_BoilerPID_P 20 //proportional
+#define VPIN_BoilerPID_I 21 //integral
+#define VPIN_BoilerPID_D 22 //differential
+#define VPIN_BoilerTargetTemp 23
+#define VPIN_SetBoilerPID_Isum_Zero 24
+#define VPIN_BoilerTargetTempGraph 25

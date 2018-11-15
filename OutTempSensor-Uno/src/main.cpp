@@ -162,7 +162,7 @@ void setup(void) {
   //initialize filters Masks(0-1),Filters(0-5):
   unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
   unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
-  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_STATIST)<<16;	//0x04	0x01040000;
+  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
   CAN0.init_Mask(0,0,mask);                // Init first mask...
   CAN0.init_Filt(0,0,filt0);                // Init first filter...
   #ifdef testmode
