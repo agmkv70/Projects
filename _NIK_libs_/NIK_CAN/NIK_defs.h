@@ -7,7 +7,7 @@
 #define Status_Manual	4 //manual valve
 #define Status_Warning	5
 #define Status_Error	6
-int STATUS = Status_Auto1;
+int boardSTATUS = Status_Auto1;
 #define VPIN_STATUS			0
 #define VPIN_ErrCode		1
 

@@ -220,8 +220,24 @@ unsigned int EEPROM_ReadInt(int p_address){
 
   return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
 }
+template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any type to address ee and return numbytes
+{
+   const byte* p = (const byte*)(const void*)&value;
+   int i;
+   for (i = 0; i < sizeof(value); i++)
+       EEPROM.write(ee++, *p++);
+   return i;
+}
+template <class T> int EEPROM_ReadAnything(int ee, T& value) //read any type from address ee and return numbytes
+{
+   byte* p = (byte*)(void*)&value;
+   int i;
+   for (i = 0; i < sizeof(value); i++)
+       *p++ = EEPROM.read(ee++);
+   return i;
+}
 
-void EEPROM_storeValuesOnTimer();
+void EEPROM_storeValues();
 // {  EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
 //   EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
 //   EEPROM.update(VPIN_SetPWMch1,(unsigned char)PWMch1);
