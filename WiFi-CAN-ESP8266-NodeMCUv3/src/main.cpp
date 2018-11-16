@@ -62,10 +62,23 @@ BLYNK_WRITE_DEFAULT() {
 // }
 
 // This function will run every time Blynk connection is established
-//BLYNK_CONNECTED() {
-//  //get data stored in virtual pin V0 from server
-//  Blynk.syncVirtual(V0, V2);
-//}
+BLYNK_CONNECTED() {
+  //get data stored in virtual pin V0 from server. Server will push these pins and BLYNK_WRITE will be 
+  Blynk.syncVirtual(VPIN_STATUS,
+                    VPIN_ManualFloorIn,
+                    VPIN_tempTargetFloorOut,
+                    VPIN_SetMainCycleInterval,
+                    VPIN_SetBoilerPowerPeriodMinutes,
+                    VPIN_BoilerPID_Kp,
+                    VPIN_BoilerPID_Ki,
+                    VPIN_BoilerPID_Kd,
+                    VPIN_BoilerTargetTemp,
+                    VPIN_SetPWMch1,
+                    VPIN_SetPWMch2,
+                    VPIN_SetPWMch3,
+                    VPIN_SetPWMch4
+                   );
+}
 
 void setup(){
   // Debug console
