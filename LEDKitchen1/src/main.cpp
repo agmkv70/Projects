@@ -1,8 +1,10 @@
-#include <SimpleTimer.h>
-#include <mcp_can.h>
-#include <SPI.h>
-#include <QueueList.h>
-#include <EEPROM.h>
+//#define testmode
+
+#define CAN_PIN_INT 8
+#define CAN_PIN_CS  7 
+
+#include <NIK_defs.h>
+#include <NIK_can.h>
 
 #define PWMpin1 9  //3 //31k
 #define PWMpin2 10 //5 //62k
@@ -15,162 +17,15 @@
 
 #define AVreadpin 0 //A0
 
-SimpleTimer timer;
 int mainTimerId;
 
-//#define testmode
-
-#define CAN0_INT 8      // INT = pin 9
-MCP_CAN CAN0(7);       // CS  = pin 10
-
-unsigned long rxId;
-unsigned char dataLen = 0;
-unsigned char rxBuf[8];
-//filter message types:
-#define CAN_MSG_MASK           0xF0
-#define CAN_MSG_FILTER_UNITCMD 0x80  //command for special unit
-#define CAN_MSG_FILTER_UNITINF 0x40  //some info for special unit
-#define CAN_MSG_FILTER_INF     0x20  //some info for everyone who wants it (e.g. outer temperature)
-#define CAN_MSG_FILTER_STATIST 0x10  //non-critical statistics
-//receive only messages to this unit - include recever id:
-#define CAN_Unit_MASK         0x0F
-#define CAN_Unit_FILTER_KUHFL 0x01 //Floor temperature tegulation unit
-#define CAN_Unit_FILTER_ESPWF 0x02 //ESP8266 WiFi-CAN bridge
-#define CAN_Unit_FILTER_ELCT1 0x03 //Electric power control
-#define CAN_Unit_FILTER_OUTDT 0x04 //Unit for outdoor temperature
-
-#define Status_Standby	1
-#define Status_Auto1	  2 //full auto (tempTargetFloorOut)
-#define Status_Auto2	  3 //semi-auto (ManualFloorIn)
-#define Status_Manual	  4 //manual valve
-#define Status_Warning  5
-#define Status_Error	  6
-int STATUS = Status_Auto2;//Status_Manual;
-
-#define VPIN_STATUS				0
-#define VPIN_ErrCode	  	1
-#define VPIN_LEDPower12Voltage  40
-#define VPIN_MainCycleInterval  41
-#define VPIN_SetMainCycleInterval  42
-#define VPIN_SetPWMch1  43
-#define VPIN_SetPWMch2  44
-#define VPIN_SetPWMch3  45
-#define VPIN_SetPWMch4  46
 int MainCycleInterval=600, PWMch1=10, PWMch2=10, PWMch3=10, PWMch4=10;
-
-struct CANMessage{ unsigned char vPinNumber; float vPinValueFloat; byte nTries; };
-int timerIntervalForNextSendCAN=0;
-int CANSendError=0;
-QueueList <CANMessage> CANQueue;
-void addCANMessage2Queue(unsigned char vPinNumber, float vPinValueFloat);
 
 float fround(float r, byte dec){
 	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
 	r=(long)(r+0.5);
 	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
 	return r;
-}
-
-char sendVPinCAN(unsigned char vPinNumber, float vPinValueFloat){
-
-	*rxBuf = vPinNumber;
-	*(float*)(rxBuf+1) = vPinValueFloat;
-
-	// send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
-	byte sndStat = CAN0.sendMsgBuf(0x100 //| CAN_MSG_FILTER_STATIST | CAN_Unit_FILTER_KUHFL
-    , 0, 1+sizeof(float), rxBuf);
-	if(sndStat == CAN_OK){
-		//Serial.println("Message Sent Successfully!");
-	} else {
-		Serial.print("Error Sending Message by CAN bus!.. pin=");
-    Serial.println(vPinNumber);
-    return 0;
-	}
-  return 1;
-}
-
-//SENDNEXT CAN ////////////////////////////////////////////////////////////////////////////
-void sendNextCANMessage(){ 
-
-  if( CANQueue.isEmpty() ){
-    timerIntervalForNextSendCAN=0;
-    return; //nothing to send is also good
-  }
-
-  //queue is not empty:
-  CANMessage mes = CANQueue.pop();
-  
-  char res = sendVPinCAN( mes.vPinNumber, mes.vPinValueFloat );
-
-  if(res == CAN_OK){
-    ;//no pushing back = drop this message
-  }else{
-    mes.nTries++;
-		if( mes.nTries > 10 ){
-      //no pushing back = drop this message
-      CANSendError = res;
-		}else{
-			CANQueue.push(mes);
-		}
-	}
-
-  if( CANQueue.isEmpty() ){
-    timerIntervalForNextSendCAN=0;
-  }else{ //not empty - try again soon:
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //5 millis try interval
-  }
-}
-
-//ADD CAN /////////////////////////////////////////////////////////////////////////////////
-void addCANMessage2Queue(unsigned char vPinNumber, float vPinValueFloat){ 
-  CANQueue.push( CANMessage{ vPinNumber, vPinValueFloat, 0} );
-  if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout(5,sendNextCANMessage); //5 millis try interval
-  }
-  
-}
-
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat); //decl
-
-//checkRead CAN ///////////////////////////////////////////////////////////////////////////
-void checkReadCAN() {
-  if(digitalRead(CAN0_INT)){ //HIGH = no CAN received messages in buffer
-	  return;
-  }
-	#ifdef testmode
-  Serial.println("Found CAN message: ");
-	#endif
-  //If CAN0_INT pin is LOW, read receive buffer:
-  int canRes=CAN0.readMsgBuf(&rxId, &dataLen, rxBuf);
-  if( canRes != CAN_OK) // Read data: len = data length, buf = data byte(s)
-	{	
-    #ifdef testmode
-    Serial.print("canreadErr=");
-    Serial.println(canRes);
-	  #endif
-    return;
-  }
-
-  #ifdef testmode
-  Serial.print(dataLen);
-  Serial.print(": pin=");
-  Serial.print(*rxBuf);
-  Serial.print(" val=");
-  Serial.print(*((float*)(rxBuf+1)));
-  // for(byte i = 0; i<dataLen; i++){
-  //   Serial.print(rxBuf[i]);
-  //   Serial.print(" ");
-  // }
-  Serial.println();
-	#endif
-
-  if(dataLen<5)
-	  return; //wee need at least 5 bytes (1 = number of VPIN, 2-5 = float value (4 bytes))
-
-  //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
-  //vPinValue = *((float*)(rxBuf+1));
-
-  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
 }
 
 void MainCycle_StartEvent(){
@@ -191,6 +46,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
 			STATUS = (int)vPinValueFloat;
+			EEPROM_storeValues();
 			break;
 		case VPIN_SetMainCycleInterval:
 			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
@@ -198,18 +54,19 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			MainCycleInterval = (int)vPinValueFloat;
 			timer.deleteTimer(mainTimerId);
 			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+			EEPROM_storeValues();
 			break;
-		case VPIN_SetPWMch1:  PWMch1  = vPinValueFloat; analogWrite(PWMpin1,PWMch1); break;
-		case VPIN_SetPWMch2:  PWMch2  = vPinValueFloat; analogWrite(PWMpin2,PWMch2); break;
-		case VPIN_SetPWMch3:  PWMch3  = vPinValueFloat; analogWrite(PWMpin3,PWMch3); break;
-		case VPIN_SetPWMch4:  PWMch4  = vPinValueFloat; analogWrite(PWMpin4,PWMch4); break;
+		case VPIN_SetPWMch1:  PWMch1  = vPinValueFloat; analogWrite(PWMpin1,PWMch1); EEPROM_storeValues(); break;
+		case VPIN_SetPWMch2:  PWMch2  = vPinValueFloat; analogWrite(PWMpin2,PWMch2); EEPROM_storeValues(); break;
+		case VPIN_SetPWMch3:  PWMch3  = vPinValueFloat; analogWrite(PWMpin3,PWMch3); EEPROM_storeValues(); break;
+		case VPIN_SetPWMch4:  PWMch4  = vPinValueFloat; analogWrite(PWMpin4,PWMch4); EEPROM_storeValues(); break;
 		default:
 			return 0;
 	}
 	return 1;
 }
 
-void EEPROM_storeValuesOnTimer(){
+void EEPROM_storeValues(){
   EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
   EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
 
@@ -231,19 +88,6 @@ void EEPROM_restoreValues(){
   PWMch2 = EEPROM.read(VPIN_SetPWMch2);
   PWMch3 = EEPROM.read(VPIN_SetPWMch3);
   PWMch4 = EEPROM.read(VPIN_SetPWMch4);
-}
-void EEPROM_WriteInt(int p_address, int p_value){
-  byte lowByte = ((p_value >> 0) & 0xFF);
-  byte highByte = ((p_value >> 8) & 0xFF);
-
-  EEPROM.write(p_address, lowByte);
-  EEPROM.write(p_address + 1, highByte);
-}
-unsigned int EEPROM_ReadInt(int p_address){
-  byte lowByte = EEPROM.read(p_address);
-  byte highByte = EEPROM.read(p_address + 1);
-
-  return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
 }
 
 /** Divides a given PWM pin frequency by a divisor.
@@ -311,12 +155,12 @@ void setPwmFrequency(int pin, int divisor) {
 void setup() {
 
   EEPROM_restoreValues();
-  timer.setInterval(1000L*600L, EEPROM_storeValuesOnTimer); //once in 10 min remember critical values
+  //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
 
   #ifdef testmode
-	Serial.begin(115200);
+  Serial.begin(115200);
   Serial.println("Start");
-	#endif
+  #endif
 
   pinMode(PWMpin1,OUTPUT);
   pinMode(PWMpin2,OUTPUT);
@@ -351,15 +195,15 @@ void setup() {
 	#ifndef testmode
   CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data.
 	#endif
-  pinMode(CAN0_INT, INPUT);  // Configuring CAN0_INT pin for input
+  pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
   //pinMode(13,OUTPUT);//led
 
   mainTimerId = timer.setInterval(1000L*MainCycleInterval, MainCycle_StartEvent); //start regularly
 }
 
-int i=0;
-int way=1;
+// int i=0;
+// int way=1;
 void loop() {
     //system events:
     timer.run();
@@ -380,6 +224,5 @@ void loop() {
     //{ way=-1; i=i+way; }
     //if(i<0)
     //{ way=1; i=i+way; }
-    
 }
 
