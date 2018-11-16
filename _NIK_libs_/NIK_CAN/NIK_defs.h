@@ -37,3 +37,11 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_BoilerTargetTemp 23
 #define VPIN_SetBoilerPID_Isum_Zero 24
 #define VPIN_BoilerTargetTempGraph 25
+
+#define VPIN_LEDPower12Voltage  40
+#define VPIN_MainCycleInterval  41
+#define VPIN_SetMainCycleInterval  42
+#define VPIN_SetPWMch1  43
+#define VPIN_SetPWMch2  44
+#define VPIN_SetPWMch3  45
+#define VPIN_SetPWMch4  46
