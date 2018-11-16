@@ -28,6 +28,7 @@ void testSendQueue(){
   
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   Blynk.virtualWrite(vPinNumber, vPinValueFloat);
+  return 0;
 }
 
 // Receive data from App to CANbus
