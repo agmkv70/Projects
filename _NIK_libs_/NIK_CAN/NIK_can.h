@@ -168,7 +168,7 @@ void checkReadCAN() {
   Serial.println();
   #endif
 
-  if(dataLen<=5)
+  if(dataLen<5)
     return; //we need at least 5 bytes (1 = number of VPIN, 2-5 = float value (4 bytes))
   //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
   //vPinValue = *((float*)(rxBuf+1));
