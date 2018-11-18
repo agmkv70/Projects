@@ -225,7 +225,7 @@ template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any 
    const byte* p = (const byte*)(const void*)&value;
    int i;
    for (i = 0; i < sizeof(value); i++)
-       EEPROM.write(ee++, *p++);
+       EEPROM.update(ee++, *p++);
    return i;
 }
 template <class T> int EEPROM_ReadAnything(int ee, T& value) //read any type from address ee and return numbytes

@@ -176,7 +176,7 @@ void MainCycle_ReadTempEvent(); //declaration
 
 void MainCycle_StartEvent() {
 
-	switch(STATUS){
+	switch(boardSTATUS){
 		case Status_Standby:
 			return;	//skip standby state
 	}
@@ -218,11 +218,11 @@ void MainCycle_ReadTempEvent() {
   if(!ErrorMeasTemp){
 	    float needChangeInTemp=0, needChangeSeconds=0;
 
-		if(STATUS==Status_Auto1){	//change FloorIn, depending on FloorOut:
+		if(boardSTATUS==Status_Auto1){	//change FloorIn, depending on FloorOut:
 			needChangeInTemp = (tempTargetFloorOut - tempFloorOut)*0.1; //slowly approaching
 		}
 
-		if(STATUS==Status_Auto1 || STATUS==Status_Auto2){	//try to achieve needed FloorIn fast:
+		if(boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2){	//try to achieve needed FloorIn fast:
 			needChangeInTemp = tempTargetFloorIn - tempFloorIn;
 			needChangeSeconds = needChangeInTemp*3;
 		}
@@ -273,7 +273,7 @@ void MainCycle_ReadTempEvent() {
 
 		  //addCANMessage2Queue(VPIN_MotorValveMinus,needChangeMillis);
 
-		  if( STATUS==Status_Auto1 || STATUS==Status_Auto2 ) {
+		  if( boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2 ) {
 			  ValveStartDecrease();
 			  timer.setTimeout(needChangeMillis, ValveStop);
 		  }
@@ -283,7 +283,7 @@ void MainCycle_ReadTempEvent() {
 
 		  //addCANMessage2Queue(VPIN_MotorValvePlus,needChangeMillis);
 
-		  if( STATUS==Status_Auto1 || STATUS==Status_Auto2 ) {
+		  if( boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2 ) {
 			ValveStartIncrease();
 			timer.setTimeout(needChangeMillis, ValveStop);
 		  }
@@ -328,7 +328,7 @@ void checkReadCAN() {
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
-			STATUS = (int)vPinValueFloat;
+			boardSTATUS = (int)vPinValueFloat;
 			break;
 		case VPIN_SetMainCycleInterval:
 			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
@@ -374,7 +374,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
-	STATUS = Status_Manual; //init
+	boardSTATUS = Status_Manual; //init
 
   #ifdef testmode
 	Serial.begin(115200);

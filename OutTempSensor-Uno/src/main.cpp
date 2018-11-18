@@ -2,7 +2,7 @@
 ///OutTempSensor///
 //For DS18B20 connected to separate pins (no need to know adresses, means interchangebility):
 
-#define testmode
+//#define testmode
 
 #include <OneWire.h>
 
@@ -14,9 +14,10 @@
 
 #define LED_PIN 13
 
-OneWire  TempDS_Outdoor(3); //3 new board nano // on pin 2 (Uno)(a 4.7K resistor to 5V is necessary)
+OneWire  TempDS_Outdoor(4); //3 new board nano // on pin 2 (Uno)(a 4.7K resistor to 5V is necessary)
 
-int MainCycleInterval=5; //5 это тестирование датчиков, а ставим не чаще 60
+int eepromVIAddr=1000,eepromValueIs=7890+2; //if this is in eeprom, then we got valid values, not junk
+int MainCycleInterval=60; //5 это тестирование датчиков, а ставим не чаще 60
 float tempOutdoor=0;
 float tempOutdoor_calibrationOffset=0.5;
 
@@ -63,7 +64,7 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
-			STATUS = (int)vPinValueFloat;
+			boardSTATUS = (int)vPinValueFloat;
       EEPROM_storeValues();
 			break;
 		//case VPIN_SetMainCycleInterval:
@@ -90,15 +91,27 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 }
 
 void EEPROM_storeValues(){
-  EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
-  EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
+  EEPROM_WriteAnything(eepromVIAddr,eepromValueIs);
+  EEPROM_WriteAnything(VPIN_STATUS, (unsigned char)boardSTATUS);
+  EEPROM_WriteAnything(VPIN_MainCycleInterval, (unsigned char)(MainCycleInterval/10));
+  //EEPROM.update(VPIN_STATUS,(unsigned char)boardSTATUS);
+  //EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
 }
 void EEPROM_restoreValues(){
-  STATUS = EEPROM.read(VPIN_STATUS);
-  int aNewInterval = EEPROM.read(VPIN_MainCycleInterval)*10;
-  if(aNewInterval != 0){
-    MainCycleInterval = aNewInterval;
+  int ival;
+  EEPROM_ReadAnything(eepromVIAddr,ival);
+  if(ival != eepromValueIs){
+    EEPROM_storeValues();
+    return; //never wrote valid values into eeprom
   }
+
+  unsigned char val;
+  EEPROM_ReadAnything(VPIN_STATUS,val);
+  boardSTATUS = val;
+  EEPROM_ReadAnything(VPIN_MainCycleInterval,val);
+  if(val==0)
+    val=6;
+  MainCycleInterval = val*10;
 }
 
 //////////////////////////////////////////////////////////////////MAIN cycle:
@@ -130,7 +143,7 @@ void MainCycle_ReadTempEvent(){
 }
 
 void MainCycle_StartEvent(){
-  switch (STATUS)
+  switch (boardSTATUS)
   {
 		case Status_Standby:
 			return;	//skip standby state
@@ -147,6 +160,7 @@ void MainCycle_StartEvent(){
 void setup(void) {
   Serial.begin(115200);
 
+  //EEPROM_storeValues();
   EEPROM_restoreValues();
   //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
     
