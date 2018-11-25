@@ -15,6 +15,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_FloorIn			3
 #define VPIN_ManualFloorIn		4 	//semi-auto
 #define VPIN_FloorOut			5
+#define VPIN_Ambient			26
 #define VPIN_tempTargetFloorOut	6	//full auto
 #define VPIN_ManualMotorValveMinus	7 	//manual -
 #define VPIN_ManualMotorValvePlus	8 	//manual +
@@ -37,6 +38,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_BoilerTargetTemp 23
 #define VPIN_SetBoilerPID_Isum_Zero 24
 #define VPIN_BoilerTargetTempGraph 25
+//26 is used
 
 #define VPIN_LEDPower12Voltage  40
 #define VPIN_MainCycleInterval  41

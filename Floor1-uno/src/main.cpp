@@ -3,7 +3,7 @@
 
 #include <OneWire.h>
 
-//#define testmode
+#define testmode
 
 #define CAN_PIN_INT 9    
 #define CAN_PIN_CS 10 
@@ -15,10 +15,10 @@
 #define ValvePlusPin  7
 #define LED_PIN 13
 
-#define BOILER_ON_PIN 14 //(analog 0 same as digital 14)
+#define BOILER_ON_PIN 6 //D6 on nano //uno was 14 //(analog 0 same as digital 14)
 float BoilerPower=0; //Boiler power on time factor 0.0 .. 10.0 float
 int BoilerPowerCurrentStateOnOff=0; //0=on or 1=off
-int BoilerPowerPeriodMinutes=10; //period of PWM
+int BoilerPowerPeriodMinutes=8; //period of PWM
 long BoilerPeriodMillis=60000L; //period of PWM in millis
 long BoilerPWMCycleStart=0; //last cycle start
 float BoilerTargetTemp=23;
@@ -29,16 +29,16 @@ float BoilerPID_Isum=0, BoilerPID_prevDelta=0;
 OneWire  TempDS_Boiler(2);  // on pin 2 (a 4.7K resistor is necessary)
 OneWire  TempDS_FloorIn(3);  // on pin 3 (a 4.7K resistor is necessary)
 OneWire  TempDS_FloorOut(4);  // on pin 4 (a 4.7K resistor is necessary)
-//OneWire  TempDS_Ambient(5);  // on pin 5 (a 4.7K resistor is necessary)
+OneWire  TempDS_Ambient(5);  // on pin 5 (a 4.7K resistor is necessary)
 
-int MainCycleInterval=30; //изредка 60
+int MainCycleInterval=60; //изредка 60
 float tempBoiler=20, offsetBoiler=0;
 float tempFloorIn=20, offsetFloorIn=0.562;
 float tempFloorOut=20, offsetFloorOut=-0.062;
-//float tempAmbient=20;
+float tempAmbient=20, offsetAmbient=0;
 
-float tempTargetFloorIn=23;
-float tempTargetFloorOut = 20;
+float tempTargetFloorIn  = 24;
+float tempTargetFloorOut = 22.5;
 float tempMaxFloorIn     = 29;
 float tempMaxFloorInOutDiff  = 8;
 unsigned long Valve_OneMoveStepMillis = 1000L;
@@ -58,18 +58,27 @@ float fround(float r, byte dec){
 
 void BoilerPIDEvaluation(){
 	float delta = BoilerTargetTemp - tempBoiler;
-	float tmpBoilerPID_Isum = BoilerPID_Isum + delta;
+	
+	//sum Integral part of PID only if our result is not saturated:
+	if(BoilerPower<=0 && delta<0)
+		; //don't go too far down
+	else if(BoilerPower>=10 && delta>0)
+		; //don't go too far up
+	else
+		BoilerPID_Isum = BoilerPID_Isum + delta;
 
 	float P = BoilerPID_Kp * delta;
-	float I = BoilerPID_Ki * tmpBoilerPID_Isum;
+	float I = BoilerPID_Ki * BoilerPID_Isum;
 	float D = BoilerPID_Kd * (delta - BoilerPID_prevDelta);
 	BoilerPID_prevDelta = delta;
 
   BoilerPower = BoilerPower + P + I + D;
 	
-	if(BoilerPower<=0) BoilerPower=0;
-	else if(BoilerPower>=10) BoilerPower=10;
-	else BoilerPID_Isum = tmpBoilerPID_Isum; //sum Integral part of PID only if our result is not saturated
+	if(BoilerPower<=0){
+		BoilerPower=0;
+	}else if(BoilerPower>=10){
+		BoilerPower=10;
+	}
 
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_P, fround(P,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_I, fround(I,2));
@@ -134,9 +143,9 @@ void TempDS_AllStartConvertion() {
   TempDS_FloorOut.reset();
   TempDS_FloorOut.write(0xCC); //skip rom - next command to all //ds.select(addr);
   TempDS_FloorOut.write(0x44); // start conversion
-  //TempDS_Ambient.reset();
-  //TempDS_Ambient.write(0xCC); //skip rom - next command to all //ds.select(addr);
-  //TempDS_Ambient.write(0x44); // start conversion
+  TempDS_Ambient.reset();
+  TempDS_Ambient.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  TempDS_Ambient.write(0x44); // start conversion
 }
 
 byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object and sensor name, returns 1 if OK
@@ -201,19 +210,21 @@ void MainCycle_ReadTempEvent() {
 	if( !TempDS_GetTemp(&TempDS_FloorOut,"FLOOROUT",&tempFloorOut) ){
 	 ErrorMeasTemp++;
 	}
-	//if( !TempDS_GetTemp(&TempDS_Ambient,"AMBIENT",&tempAmbient) ){
-	// ErrorMeasTemp++;
-	//
+	if( !TempDS_GetTemp(&TempDS_Ambient,"AMBIENT",&tempAmbient) ){
+	 ErrorMeasTemp++;
+	}
 	#ifdef testmode
     Serial.println();
 	#endif
   tempBoiler += offsetBoiler;
   tempFloorIn += offsetFloorIn;
   tempFloorOut += offsetFloorOut;
+	tempAmbient += offsetAmbient;
 
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Boiler,fround(tempBoiler,1)); //rounded 0.0 value
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Ambient,fround(tempAmbient,1)); //rounded 0.0 value
 
   if(!ErrorMeasTemp){
 	    float needChangeInTemp=0, needChangeSeconds=0;
@@ -290,39 +301,6 @@ void MainCycle_ReadTempEvent() {
 		}
 	}
 	//addCANMessage2Queue(VPIN_BoilerPower,fround(BoilerPower,2); //rounded 0.00 value
-}
-
-void checkReadCAN() {
-  if(digitalRead(CAN_PIN_INT)){ //HIGH = no CAN received messages in buffer
-	  return;
-  }
-	#ifdef testmode
-  Serial.println("Found CAN message: ");
-	#endif
-  //If CAN0_INT pin is LOW, read receive buffer:
-  if(CAN0.readMsgBuf(&rxId, &dataLen, rxBuf) != CAN_OK) // Read data: len = data length, buf = data byte(s)
-		return;
-
-  #ifdef testmode
-  Serial.print(dataLen);
-  Serial.print(": pin=");
-  Serial.print(*rxBuf);
-  Serial.print(" val=");
-  Serial.print(*((float*)(rxBuf+1)));
-  // for(byte i = 0; i<dataLen; i++){
-  //   Serial.print(rxBuf[i]);
-  //   Serial.print(" ");
-  // }
-  Serial.println();
-	#endif
-
-  if(dataLen<5)
-	  return; //wee need at least 5 bytes (1 = number of VPIN, 2-5 = float value (4 bytes))
-
-  //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
-  //vPinValue = *((float*)(rxBuf+1));
-
-  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
 }
 
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
