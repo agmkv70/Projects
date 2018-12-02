@@ -19,6 +19,7 @@
 
 int mainTimerId,measure12vId;
 float average12v;
+int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got valid values, not junk
 
 int MainCycleInterval=300, PWMch1=0, PWMch2=0, PWMch3=0, PWMch4=0;
 
@@ -74,6 +75,8 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 }
 
 void EEPROM_storeValues(){
+  EEPROM_WriteAnything(eepromVIAddr,eepromValueIs);
+  
   EEPROM.update(VPIN_STATUS,(unsigned char)boardSTATUS);
   EEPROM.update(VPIN_LEDMainCycleInterval,(unsigned char)(MainCycleInterval/10));
 
@@ -84,6 +87,13 @@ void EEPROM_storeValues(){
 
 }
 void EEPROM_restoreValues(){
+  int ival;
+  EEPROM_ReadAnything(eepromVIAddr,ival);
+  if(ival != eepromValueIs){
+    EEPROM_storeValues();
+    return; //never wrote valid values into eeprom
+  }
+
   boardSTATUS = EEPROM.read(VPIN_STATUS);
   
   int aNewInterval = EEPROM.read(VPIN_LEDMainCycleInterval)*10;

@@ -73,12 +73,18 @@ BLYNK_CONNECTED() {
                     VPIN_BoilerPID_Kp,
                     VPIN_BoilerPID_Ki,
                     VPIN_BoilerPID_Kd,
-                    VPIN_BoilerTargetTemp,
-                    VPIN_SetPWMch1,
-                    VPIN_SetPWMch2,
-                    VPIN_SetPWMch3,
-                    VPIN_SetPWMch4
+                    VPIN_HomePID_Kp,
+                    VPIN_HomePID_Ki,
+                    VPIN_HomePID_Kd,
+                    VPIN_HomeTargetTemp,
+                    VPIN_LEDSetPWMch1,
+                    VPIN_LEDSetPWMch2,
+                    VPIN_LEDSetPWMch3,
+                    VPIN_LEDSetPWMch4
                    );
+  if(VPIN_STATUS!=Status_Auto2){
+    Blynk.syncVirtual(VPIN_BoilerTargetTemp); //because in this case it is evaluated automatically and we mustn't bother it on conn/disconn
+  }
 }
 
 void setup(){

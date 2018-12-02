@@ -2,8 +2,8 @@
 //defs of BLYNK VirtualPINs and states:
 
 #define Status_Standby	1
-#define Status_Auto1	2 //full auto (tempTargetFloorOut)
-#define Status_Auto2	3 //semi-auto (ManualFloorIn)
+#define Status_Auto1	2 //auto tFloorIn (pwm Boiler PID regulation to achieve manually set floorIn temperature)
+#define Status_Auto2	3 //auto tHome (PID regulation of tFloorIn to achieve manually set Home temperature (BoilerPID works and does the actual power regulation) )
 #define Status_Manual	4 //manual valve
 #define Status_Warning	5
 #define Status_Error	6
@@ -15,7 +15,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_FloorIn			3
 #define VPIN_ManualFloorIn		4 	//semi-auto
 #define VPIN_FloorOut			5
-#define VPIN_Ambient			26
+#define VPIN_Home			26
 #define VPIN_tempTargetFloorOut	6	//full auto
 #define VPIN_ManualMotorValveMinus	7 	//manual -
 #define VPIN_ManualMotorValvePlus	8 	//manual +
@@ -26,7 +26,7 @@ int boardSTATUS = Status_Auto1;
 
 #define VPIN_OutdoorTemp  13 //other module on CAN
 
-#define VPIN_SetBoilerPowerPeriodMinutes  14
+#define VPIN_SetBoilerPowerPeriodMinutes  14 //evaluation period for FloorInPID(auto1) and HomePID(auto2)
 #define VPIN_BoilerPowerOnOff 15
 #define VPIN_BoilerPower 16
 #define VPIN_BoilerPID_Kp 17 
@@ -39,6 +39,15 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_SetBoilerPID_Isum_Zero 24
 #define VPIN_BoilerTargetTempGraph 25
 //26 is used
+#define VPIN_HomePID_Kp 27 
+#define VPIN_HomePID_Ki 28 
+#define VPIN_HomePID_Kd 29 
+#define VPIN_HomePID_P 30 //proportional
+#define VPIN_HomePID_I 31 //integral
+#define VPIN_HomePID_D 32 //differential
+#define VPIN_HomeTargetTemp 33
+#define VPIN_SetHomePID_Isum_Zero 34
+#define VPIN_HomeTargetTempGraph 35
 
 #define VPIN_LEDPower12Voltage  40
 #define VPIN_LEDMainCycleInterval  41
