@@ -223,7 +223,7 @@ unsigned int EEPROM_ReadInt(int p_address){
 template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any type to address ee and return numbytes
 {
    const byte* p = (const byte*)(const void*)&value;
-   int i;
+   unsigned int i;
    for (i = 0; i < sizeof(value); i++)
        EEPROM.update(ee++, *p++);
    return i;
@@ -231,7 +231,7 @@ template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any 
 template <class T> int EEPROM_ReadAnything(int ee, T& value) //read any type from address ee and return numbytes
 {
    byte* p = (byte*)(void*)&value;
-   int i;
+   unsigned int i;
    for (i = 0; i < sizeof(value); i++)
        *p++ = EEPROM.read(ee++);
    return i;
