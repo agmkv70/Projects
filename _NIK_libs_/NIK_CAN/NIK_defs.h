@@ -41,9 +41,9 @@ int boardSTATUS = Status_Auto1;
 //26 is used
 
 #define VPIN_LEDPower12Voltage  40
-#define VPIN_MainCycleInterval  41
-#define VPIN_SetMainCycleInterval  42
-#define VPIN_SetPWMch1  43
-#define VPIN_SetPWMch2  44
-#define VPIN_SetPWMch3  45
-#define VPIN_SetPWMch4  46
+#define VPIN_LEDMainCycleInterval  41
+#define VPIN_LEDSetMainCycleInterval  42
+#define VPIN_LEDSetPWMch1  43
+#define VPIN_LEDSetPWMch2  44
+#define VPIN_LEDSetPWMch3  45
+#define VPIN_LEDSetPWMch4  46

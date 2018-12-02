@@ -17,9 +17,10 @@
 
 #define AVreadpin 0 //A0
 
-int mainTimerId;
+int mainTimerId,measure12vId;
+float average12v;
 
-int MainCycleInterval=600, PWMch1=10, PWMch2=10, PWMch3=10, PWMch4=10;
+int MainCycleInterval=300, PWMch1=0, PWMch2=0, PWMch3=0, PWMch4=0;
 
 float fround(float r, byte dec){
 	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
@@ -28,27 +29,33 @@ float fround(float r, byte dec){
 	return r;
 }
 
+void Cycle_measure12v(){
+  float avolt = ((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
+  float K=0.01;
+  average12v = (1-K)*average12v + K*avolt; //K=[0..1]      t = (1-K) * dt / K      dt=0.050s; K=0.01; t=4.95s(supress waves)
+}
+
 void MainCycle_StartEvent(){
   //digitalWrite(13,HIGH);
 
-  float avolt = ((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
+  float avolt = average12v;//((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
     
   #ifdef testmode
 		Serial.print("a0volt = ");
 		Serial.println(avolt);
   #endif
 
-  addCANMessage2Queue(VPIN_LEDPower12Voltage,fround(avolt,2)); //rounded 0.0 value
+  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_LEDPower12Voltage,fround(avolt,2)); //rounded 0.0 value
 	//digitalWrite(13,LOW);
 }
 
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
-			STATUS = (int)vPinValueFloat;
+			boardSTATUS = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
-		case VPIN_SetMainCycleInterval:
+		case VPIN_LEDSetMainCycleInterval:
 			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
 				break;
 			MainCycleInterval = (int)vPinValueFloat;
@@ -56,10 +63,10 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
-		case VPIN_SetPWMch1:  PWMch1  = vPinValueFloat; analogWrite(PWMpin1,PWMch1); EEPROM_storeValues(); break;
-		case VPIN_SetPWMch2:  PWMch2  = vPinValueFloat; analogWrite(PWMpin2,PWMch2); EEPROM_storeValues(); break;
-		case VPIN_SetPWMch3:  PWMch3  = vPinValueFloat; analogWrite(PWMpin3,PWMch3); EEPROM_storeValues(); break;
-		case VPIN_SetPWMch4:  PWMch4  = vPinValueFloat; analogWrite(PWMpin4,PWMch4); EEPROM_storeValues(); break;
+		case VPIN_LEDSetPWMch1:  PWMch1  = vPinValueFloat; analogWrite(PWMpin1,PWMch1); EEPROM_storeValues(); break;
+		case VPIN_LEDSetPWMch2:  PWMch2  = vPinValueFloat; analogWrite(PWMpin2,PWMch2); EEPROM_storeValues(); break;
+		case VPIN_LEDSetPWMch3:  PWMch3  = vPinValueFloat; analogWrite(PWMpin3,PWMch3); EEPROM_storeValues(); break;
+		case VPIN_LEDSetPWMch4:  PWMch4  = vPinValueFloat; analogWrite(PWMpin4,PWMch4); EEPROM_storeValues(); break;
 		default:
 			return 0;
 	}
@@ -67,27 +74,27 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 }
 
 void EEPROM_storeValues(){
-  EEPROM.update(VPIN_STATUS,(unsigned char)STATUS);
-  EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
+  EEPROM.update(VPIN_STATUS,(unsigned char)boardSTATUS);
+  EEPROM.update(VPIN_LEDMainCycleInterval,(unsigned char)(MainCycleInterval/10));
 
-  EEPROM.update(VPIN_SetPWMch1,(unsigned char)PWMch1);
-  EEPROM.update(VPIN_SetPWMch2,(unsigned char)PWMch2);
-  EEPROM.update(VPIN_SetPWMch3,(unsigned char)PWMch3);
-  EEPROM.update(VPIN_SetPWMch4,(unsigned char)PWMch4);
+  EEPROM.update(VPIN_LEDSetPWMch1,(unsigned char)PWMch1);
+  EEPROM.update(VPIN_LEDSetPWMch2,(unsigned char)PWMch2);
+  EEPROM.update(VPIN_LEDSetPWMch3,(unsigned char)PWMch3);
+  EEPROM.update(VPIN_LEDSetPWMch4,(unsigned char)PWMch4);
 
 }
 void EEPROM_restoreValues(){
-  STATUS = EEPROM.read(VPIN_STATUS);
+  boardSTATUS = EEPROM.read(VPIN_STATUS);
   
-  int aNewInterval = EEPROM.read(VPIN_MainCycleInterval)*10;
+  int aNewInterval = EEPROM.read(VPIN_LEDMainCycleInterval)*10;
   if(aNewInterval != 0){
     MainCycleInterval = aNewInterval;
   }
   
-  PWMch1 = EEPROM.read(VPIN_SetPWMch1);
-  PWMch2 = EEPROM.read(VPIN_SetPWMch2);
-  PWMch3 = EEPROM.read(VPIN_SetPWMch3);
-  PWMch4 = EEPROM.read(VPIN_SetPWMch4);
+  PWMch1 = EEPROM.read(VPIN_LEDSetPWMch1);
+  PWMch2 = EEPROM.read(VPIN_LEDSetPWMch2);
+  PWMch3 = EEPROM.read(VPIN_LEDSetPWMch3);
+  PWMch4 = EEPROM.read(VPIN_LEDSetPWMch4);
 }
 
 /** Divides a given PWM pin frequency by a divisor.
@@ -156,6 +163,7 @@ void setup() {
 
   EEPROM_restoreValues();
   //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
+  average12v=0;
 
   #ifdef testmode
   Serial.begin(115200);
@@ -200,6 +208,7 @@ void setup() {
   //pinMode(13,OUTPUT);//led
 
   mainTimerId = timer.setInterval(1000L*MainCycleInterval, MainCycle_StartEvent); //start regularly
+  measure12vId = timer.setInterval(50L,Cycle_measure12v);
 }
 
 // int i=0;

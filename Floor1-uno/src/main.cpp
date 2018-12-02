@@ -31,11 +31,18 @@ OneWire  TempDS_FloorIn(3);  // on pin 3 (a 4.7K resistor is necessary)
 OneWire  TempDS_FloorOut(4);  // on pin 4 (a 4.7K resistor is necessary)
 OneWire  TempDS_Ambient(5);  // on pin 5 (a 4.7K resistor is necessary)
 
+#ifdef testmode
+int MainCycleInterval=10; //изредка 60
+#endif
+#ifndef testmode
 int MainCycleInterval=60; //изредка 60
+#endif
+// 21.12 20.94 21.19
+// 21.06 20.87 21.12
 float tempBoiler=20, offsetBoiler=0;
-float tempFloorIn=20, offsetFloorIn=0.562;
-float tempFloorOut=20, offsetFloorOut=-0.062;
-float tempAmbient=20, offsetAmbient=0;
+float tempFloorIn=20, offsetFloorIn=0;//0.562;
+float tempFloorOut=20, offsetFloorOut=0;//-0.062;
+float tempAmbient=0, offsetAmbient=0;
 
 float tempTargetFloorIn  = 24;
 float tempTargetFloorOut = 22.5;
