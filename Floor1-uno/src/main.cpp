@@ -3,7 +3,7 @@
 
 #include <OneWire.h>
 
-#define testmode
+//#define testmode
 
 #define CAN_PIN_INT 9    
 #define CAN_PIN_CS 10 
