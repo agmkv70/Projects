@@ -16,6 +16,10 @@
 #define LED_PIN 13
 
 #define BOILER_ON_PIN 6 //D6 on nano //uno was 14 //(analog 0 same as digital 14)
+
+int VALVESTATUS=0, //vpin37 //0 1    manual / auto floorIn
+		PIDSTATUS=0;	 //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+
 float BoilerPower=0; //Boiler power on time factor 0.0 .. 10.0 float
 int BoilerPowerCurrentStateOnOff=0; //0=on or 1=off
 int BoilerPowerPeriodMinutes=8; //period of PWM
@@ -45,7 +49,7 @@ int MainCycleInterval=10; //изредка 60
 #ifndef testmode
 int MainCycleInterval=60; //изредка 60
 #endif
-int eepromVIAddr=1000,eepromValueIs=7750+0; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7750+1; //if this is in eeprom, then we got valid values, not junk
 // 21.12 20.94 21.19
 // 21.06 20.87 21.12
 float tempBoiler=20, offsetBoiler=0;
@@ -138,8 +142,8 @@ void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	long millisFromStart = millis()-BoilerPWMCycleStart;
 		
 	if( millisFromStart >= BoilerPeriodMillis ){ //time to START:
-		if( !ErrorTempBoiler ){
-			if( !ErrorTempHome){  //&& boardStatus==Status_Auto2
+		if( !ErrorTempBoiler && PIDSTATUS>0 ){
+			if( !ErrorTempHome && PIDSTATUS>1 ){  //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
 				HomePIDEvaluation(); //evaluate BoilerTargetTemp
 			}
 			BoilerPIDEvaluation(); //once: on boiler pwm cycle start and only if temperature is really read
@@ -287,18 +291,12 @@ void MainCycle_ReadTempAndMoveValveEvent() {
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Home,fround(tempHome,1)); //rounded 0.0 value
 
-  if(!ErrorMeasTemp){
-	    float needChangeInTemp=0, needChangeSeconds=0;
+  if( !ErrorMeasTemp && VALVESTATUS == 1 ){ //vpin37 = 0 1    manual / auto floorIn
+	  float needChangeInTemp=0, needChangeSeconds=0;
 
-		if(boardSTATUS==Status_Auto1){	//change FloorIn, depending on FloorOut:
-			needChangeInTemp = (tempTargetFloorOut - tempFloorOut)*0.1; //slowly approaching
-		}
-
-		if(boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2){	//try to achieve needed FloorIn fast:
-			needChangeInTemp = tempTargetFloorIn - tempFloorIn;
-			needChangeSeconds = needChangeInTemp*3;
-		}
-
+		needChangeInTemp = tempTargetFloorIn - tempFloorIn;
+		needChangeSeconds = needChangeInTemp*3;
+		
 		needChangeSeconds += cumulatedUndersteps;
 		cumulatedUndersteps=0;
 
@@ -345,20 +343,17 @@ void MainCycle_ReadTempAndMoveValveEvent() {
 
 		  //addCANMessage2Queue(VPIN_MotorValveMinus,needChangeMillis);
 
-		  if( boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2 ) {
-			  ValveStartDecrease();
-			  timer.setTimeout(needChangeMillis, ValveStop);
-		  }
+		  ValveStartDecrease();
+			timer.setTimeout(needChangeMillis, ValveStop);
+
 		}else if(needChangeSeconds > 0){
 
 		  needChangeMillis = needChangeSeconds * (float)Valve_OneMoveStepMillis;
 
 		  //addCANMessage2Queue(VPIN_MotorValvePlus,needChangeMillis);
 
-		  if( boardSTATUS==Status_Auto1 || boardSTATUS==Status_Auto2 ) {
 			ValveStartIncrease();
 			timer.setTimeout(needChangeMillis, ValveStop);
-		  }
 		}
 	}
 	//addCANMessage2Queue(VPIN_BoilerPower,fround(BoilerPower,2); //rounded 0.00 value
@@ -368,6 +363,14 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
 			boardSTATUS = (int)vPinValueFloat;
+			EEPROM_storeValues();
+			break;
+		case VPIN_PIDSTATUS:
+			PIDSTATUS = (int)vPinValueFloat;
+			EEPROM_storeValues();
+			break;
+		case VPIN_VALVESTATUS:
+			VALVESTATUS = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
 		case VPIN_SetMainCycleInterval:
@@ -441,6 +444,10 @@ void EEPROM_storeValues(){
   EEPROM_WriteAnything(VPIN_HomePID_Kp*sizeof(float), 		HomePID_Kp);
   EEPROM_WriteAnything(VPIN_HomePID_Ki*sizeof(float), 		HomePID_Ki);
   EEPROM_WriteAnything(VPIN_HomePID_Kd*sizeof(float), 		HomePID_Kd);
+
+	EEPROM_WriteAnything(VPIN_PIDSTATUS*sizeof(float),			PIDSTATUS);
+  EEPROM_WriteAnything(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
+  
 }
 void EEPROM_restoreValues(){
   int ival;
@@ -469,6 +476,9 @@ void EEPROM_restoreValues(){
 	EEPROM_ReadAnything(VPIN_HomePID_Kp*sizeof(float), 				HomePID_Kp);
   EEPROM_ReadAnything(VPIN_HomePID_Ki*sizeof(float), 				HomePID_Ki);
 	EEPROM_ReadAnything(VPIN_HomePID_Kd*sizeof(float), 				HomePID_Kd);
+
+	EEPROM_ReadAnything(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
+	EEPROM_ReadAnything(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {

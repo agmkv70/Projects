@@ -10,6 +10,8 @@
 int boardSTATUS = Status_Auto1;
 #define VPIN_STATUS			0
 #define VPIN_ErrCode		1
+#define VPIN_PIDSTATUS		36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+#define VPIN_VALVESTATUS	37 //0 1    manual / auto floorIn
 
 #define VPIN_Boiler				2
 #define VPIN_FloorIn			3
@@ -48,6 +50,8 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_HomeTargetTemp 33
 #define VPIN_SetHomePID_Isum_Zero 34
 #define VPIN_HomeTargetTempGraph 35
+//36
+//37
 
 #define VPIN_LEDPower12Voltage  40
 #define VPIN_LEDMainCycleInterval  41
