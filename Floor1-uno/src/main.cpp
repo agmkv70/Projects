@@ -11,8 +11,8 @@
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
-#define ValveMinusPin 6
-#define ValvePlusPin  7
+#define ValveMinusPin 7
+#define ValvePlusPin  8
 #define LED_PIN 13
 
 #define BOILER_ON_PIN 6 //D6 on nano //uno was 14 //(analog 0 same as digital 14)
@@ -49,7 +49,7 @@ int MainCycleInterval=10; //изредка 60
 #ifndef testmode
 int MainCycleInterval=60; //изредка 60
 #endif
-int eepromVIAddr=1000,eepromValueIs=7750+1; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7750+2; //if this is in eeprom, then we got valid values, not junk
 // 21.12 20.94 21.19
 // 21.06 20.87 21.12
 float tempBoiler=20, offsetBoiler=0;
@@ -95,9 +95,9 @@ void HomePIDEvaluation(){
 
   BoilerTargetTemp = BoilerTargetTemp + P + I + D;
 	
-	if(BoilerTargetTemp <= BoilerTargetTemp_MIN){
+	if(BoilerTargetTemp < BoilerTargetTemp_MIN){
 		BoilerTargetTemp = BoilerTargetTemp_MIN;
-	}else if(BoilerTargetTemp >= BoilerTargetTemp_MAX){
+	}else if(BoilerTargetTemp > BoilerTargetTemp_MAX){
 		BoilerTargetTemp = BoilerTargetTemp_MAX;
 	}
 
@@ -125,9 +125,9 @@ void BoilerPIDEvaluation(){
 
   BoilerPower = BoilerPower + P + I + D;
 	
-	if(BoilerPower<=0){
+	if(BoilerPower<0){
 		BoilerPower=0;
-	}else if(BoilerPower>=10){
+	}else if(BoilerPower>10){
 		BoilerPower=10;
 	}
 
@@ -396,6 +396,8 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			if(vPinValueFloat==0) ValveStop(); else ValveStartIncrease();
 			break;
 		case VPIN_SetBoilerPowerPeriodMinutes:
+			if(vPinValueFloat<1) 
+				vPinValueFloat=1;
 			BoilerPowerPeriodMinutes = vPinValueFloat;
 			BoilerPeriodMillis = (long)BoilerPowerPeriodMinutes*60000L;
 			EEPROM_storeValues();
@@ -426,59 +428,60 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 }
 
 void EEPROM_storeValues(){
-  EEPROM_WriteAnything(eepromVIAddr,eepromValueIs);
+  EEPROM.put(eepromVIAddr,eepromValueIs);
   
-	EEPROM.update(VPIN_STATUS,(unsigned char)boardSTATUS);
-  EEPROM.update(VPIN_MainCycleInterval,(unsigned char)(MainCycleInterval/10));
+	EEPROM.put(VPIN_STATUS*sizeof(float),						boardSTATUS);
+  EEPROM.put(VPIN_MainCycleInterval*sizeof(float),MainCycleInterval);
 
-  EEPROM_WriteAnything(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
-  EEPROM_WriteAnything(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
-  EEPROM_WriteAnything(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
-  EEPROM_WriteAnything(VPIN_BoilerPID_Kp*sizeof(float), 		BoilerPID_Kp);
-  EEPROM_WriteAnything(VPIN_BoilerPID_Ki*sizeof(float), 		BoilerPID_Ki);
-  EEPROM_WriteAnything(VPIN_BoilerPID_Kd*sizeof(float), 		BoilerPID_Kd);
-  EEPROM_WriteAnything(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM_WriteAnything(VPIN_BoilerTargetTemp*sizeof(float), BoilerTargetTemp);
+  EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
+  EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
+  EEPROM.put(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
+  EEPROM.put(VPIN_BoilerPID_Kp*sizeof(float), 		BoilerPID_Kp);
+  EEPROM.put(VPIN_BoilerPID_Ki*sizeof(float), 		BoilerPID_Ki);
+  EEPROM.put(VPIN_BoilerPID_Kd*sizeof(float), 		BoilerPID_Kd);
+  EEPROM.put(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
+  EEPROM.put(VPIN_BoilerTargetTemp*sizeof(float), BoilerTargetTemp);
 
-	EEPROM_WriteAnything(VPIN_HomeTargetTemp*sizeof(float), HomeTargetTemp);
-  EEPROM_WriteAnything(VPIN_HomePID_Kp*sizeof(float), 		HomePID_Kp);
-  EEPROM_WriteAnything(VPIN_HomePID_Ki*sizeof(float), 		HomePID_Ki);
-  EEPROM_WriteAnything(VPIN_HomePID_Kd*sizeof(float), 		HomePID_Kd);
+	EEPROM.put(VPIN_HomeTargetTemp*sizeof(float), HomeTargetTemp);
+  EEPROM.put(VPIN_HomePID_Kp*sizeof(float), 		HomePID_Kp);
+  EEPROM.put(VPIN_HomePID_Ki*sizeof(float), 		HomePID_Ki);
+  EEPROM.put(VPIN_HomePID_Kd*sizeof(float), 		HomePID_Kd);
 
-	EEPROM_WriteAnything(VPIN_PIDSTATUS*sizeof(float),			PIDSTATUS);
-  EEPROM_WriteAnything(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
+	EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			PIDSTATUS);
+  EEPROM.put(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
   
 }
 void EEPROM_restoreValues(){
   int ival;
-  EEPROM_ReadAnything(eepromVIAddr,ival);
+  EEPROM.get(eepromVIAddr,ival);
   if(ival != eepromValueIs){
     EEPROM_storeValues();
     return; //never wrote valid values into eeprom
   }
 	
-	boardSTATUS = EEPROM.read(VPIN_STATUS);
-  int aNewInterval = EEPROM.read(VPIN_MainCycleInterval)*10;
-  if(aNewInterval != 0){
+	EEPROM.get(VPIN_STATUS*sizeof(float),boardSTATUS);
+  int aNewInterval;
+	EEPROM.get(VPIN_MainCycleInterval*sizeof(float),aNewInterval);
+  if(aNewInterval > 0){
     MainCycleInterval = aNewInterval;
   }
   
-  EEPROM_ReadAnything(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
-  EEPROM_ReadAnything(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
-  EEPROM_ReadAnything(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
-  EEPROM_ReadAnything(VPIN_BoilerPID_Kp*sizeof(float), 			BoilerPID_Kp);
-  EEPROM_ReadAnything(VPIN_BoilerPID_Ki*sizeof(float), 			BoilerPID_Ki);
-	EEPROM_ReadAnything(VPIN_BoilerPID_Kd*sizeof(float), 			BoilerPID_Kd);
-  EEPROM_ReadAnything(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM_ReadAnything(VPIN_BoilerTargetTemp*sizeof(float), 	BoilerTargetTemp);
+  EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
+  EEPROM.get(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
+  EEPROM.get(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
+  EEPROM.get(VPIN_BoilerPID_Kp*sizeof(float), 			BoilerPID_Kp);
+  EEPROM.get(VPIN_BoilerPID_Ki*sizeof(float), 			BoilerPID_Ki);
+	EEPROM.get(VPIN_BoilerPID_Kd*sizeof(float), 			BoilerPID_Kd);
+  EEPROM.get(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
+  EEPROM.get(VPIN_BoilerTargetTemp*sizeof(float), 	BoilerTargetTemp);
 
-	EEPROM_ReadAnything(VPIN_HomeTargetTemp*sizeof(float), 		HomeTargetTemp);
-	EEPROM_ReadAnything(VPIN_HomePID_Kp*sizeof(float), 				HomePID_Kp);
-  EEPROM_ReadAnything(VPIN_HomePID_Ki*sizeof(float), 				HomePID_Ki);
-	EEPROM_ReadAnything(VPIN_HomePID_Kd*sizeof(float), 				HomePID_Kd);
+	EEPROM.get(VPIN_HomeTargetTemp*sizeof(float), 		HomeTargetTemp);
+	EEPROM.get(VPIN_HomePID_Kp*sizeof(float), 				HomePID_Kp);
+  EEPROM.get(VPIN_HomePID_Ki*sizeof(float), 				HomePID_Ki);
+	EEPROM.get(VPIN_HomePID_Kd*sizeof(float), 				HomePID_Kd);
 
-	EEPROM_ReadAnything(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
-	EEPROM_ReadAnything(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
+	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
+	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
@@ -501,7 +504,7 @@ void setup(void) {
   ValveStop(); //initial
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
@@ -511,16 +514,16 @@ void setup(void) {
 	}
 
   //initialize filters Masks(0-1),Filters(0-5):
-  unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
-  unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
-  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
-  CAN0.init_Mask(0,0,mask);                // Init first mask...
-  CAN0.init_Filt(0,0,filt0);                // Init first filter...
-  #ifdef testmode
-  CAN0.init_Filt(1,0,filt1);                // Init second filter...
-  #endif
-  CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
-  CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
+  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
+  // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
+  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
+  // CAN0.init_Mask(0,0,mask);                // Init first mask...
+  // CAN0.init_Filt(0,0,filt0);                // Init first filter...
+  // #ifdef testmode
+  // CAN0.init_Filt(1,0,filt1);                // Init second filter...
+  // #endif
+  //CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
+  //CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
   //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
   //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
   //CAN0.init_Filt(5,0,filt);                // Init sixth filter...

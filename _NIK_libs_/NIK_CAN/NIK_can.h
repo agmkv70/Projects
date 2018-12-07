@@ -34,7 +34,7 @@ struct CANMessage{ long mesID; unsigned char vPinNumber; float vPinValueFloat; b
 int timerIntervalForNextSendCAN=0;
 int CANQueueError=0; 
 #define CANQueueErrorOverflow 7777
-static int CANQueueMaxLength=30;
+static int CANQueueMaxLength=20;
 QueueList <CANMessage> CANQueue;
 
 ///////////////////////////////////////CAN//////////////////////////////////////////
@@ -49,9 +49,11 @@ char sendVPinCAN(long mesID, unsigned char vPinNumber, float vPinValueFloat){ //
 		//Serial.println("Message Sent Successfully!");
     return sndStat;
 	} else {
+    #ifdef testmode
 		Serial.print("Error (");
     Serial.print(sndStat);
     Serial.println(") Sending Message by CAN bus!..");
+    #endif
     return sndStat;
 	}
 }
@@ -80,7 +82,7 @@ void sendNextCANMessage(){
 
   if(res == CAN_OK){
     CANQueue.pop(); //drop this message
-  }else{
+  }else{ //sending error:
     mes.nTries++;
     if( mes.nTries > 20 ){
       CANQueue.pop(); //drop this message
@@ -95,7 +97,7 @@ void sendNextCANMessage(){
   if( CANQueue.isEmpty() ){
     timerIntervalForNextSendCAN=0;
   }else{ //not empty - try again soon:
-    timerIntervalForNextSendCAN = timer.setTimeout( 2, sendNextCANMessage ); //2 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //2 millis try interval
   }
 }
 
@@ -119,7 +121,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   #endif
   CANQueue.push( CANMessage{ mesID, vPinNumber, vPinValueFloat, 0} );
   if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout( 2, sendNextCANMessage); //2 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //2 millis try interval
   }
 }
 
@@ -225,7 +227,13 @@ template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any 
    const byte* p = (const byte*)(const void*)&value;
    unsigned int i;
    for (i = 0; i < sizeof(value); i++)
-       EEPROM.update(ee++, *p++);
+   {   //EEPROM.update(ee++, *p++);
+      byte val = EEPROM.read(ee);
+      if(val!=*p)
+        EEPROM.write(ee,*p);
+      ee++;
+      p++;
+   }
    return i;
 }
 template <class T> int EEPROM_ReadAnything(int ee, T& value) //read any type from address ee and return numbytes

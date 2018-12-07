@@ -2,7 +2,6 @@
   mcp_can.cpp
   2012 Copyright (c) Seeed Technology Inc.  All right reserved.
   2017 Copyright (c) Cory J. Fowler  All Rights Reserved.
-
   Author: Loovee
   Contributor: Cory J. Fowler
   2017-09-25
@@ -10,12 +9,10 @@
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 2.1 of the License, or (at your option) any later version.
-
   This library is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
   Lesser General Public License for more details.
-
   You should have received a copy of the GNU Lesser General Public
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-
@@ -553,7 +550,6 @@ INT8U MCP_CAN::mcp2515_init(const INT8U canIDMode, const INT8U canSpeed, const I
             mcp2515_modifyRegister(MCP_RXB1CTRL, MCP_RXB_RX_MASK,
             MCP_RXB_RX_STD);
             break;
-
             case (MCP_EXT): 
             mcp2515_modifyRegister(MCP_RXB0CTRL,
             MCP_RXB_RX_MASK | MCP_RXB_BUKT_MASK,
@@ -836,7 +832,7 @@ INT8U MCP_CAN::init_Mask(INT8U num, INT32U ulData)
   return res;
 }
     
-    if((num & 0x80000000) == 0x80000000)
+    if((ulData & 0x80000000) == 0x80000000)
         ext = 1;
     
     if (num == 0){
@@ -946,7 +942,7 @@ INT8U MCP_CAN::init_Filt(INT8U num, INT32U ulData)
       return res;
     }
     
-    if((num & 0x80000000) == 0x80000000)
+    if((ulData & 0x80000000) == 0x80000000)
         ext = 1;
     
     switch( num )
