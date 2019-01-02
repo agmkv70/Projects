@@ -27,7 +27,7 @@ byte no_of_Iinputs = 0;
 
 // for general interaction between the main code and the ISR
 volatile boolean datalogEventPending;
-unsigned long missing_Voltage = 0;                                     // provides a timebase mechanism for current-only use
+unsigned long missing_Voltage_ADCsamples = 0;                                     // provides a timebase mechanism for current-only use
                                                                        //  - uses the ADC free-running rate as a clock.
 // Arrays for current channels (zero-based)                                                                       
 int realPower_CT[max_no_of_channels];
@@ -108,7 +108,6 @@ int ADCDuration = 104;                                                 // Time i
 *
 *   General variables 
 *
-*
 ***************************************************************************************************/
 
 
@@ -176,7 +175,6 @@ double x[max_no_of_channels], y[max_no_of_channels]; // coefficients for real po
 *
 *   APPLICATION INTERFACE - Getters & Setters
 *
-*
 ***************************************************************************************************/
 
 void EmonLibCM_SetADC_VChannel(byte ADC_Input, double _amplitudeCal)
@@ -221,7 +219,6 @@ void EmonLibCM_ADCCal(double _Vref)
     Vref = _Vref;
 }   
 
-
 bool EmonLibCM_acPresent(void)
 {
     return(acPresent);
@@ -252,14 +249,12 @@ double EmonLibCM_getVrms(void)
     return Vrms;
 }
 
-long EmonLibCM_getWattHour(int channel)
-{
+long EmonLibCM_getWattHour(int channel){
     return wh_CT[channel];
 }
 
 #ifdef INTEGRITY
-int EmonLibCM_minSampleSetsDuringThisMainsCycle(void)    
-{
+int EmonLibCM_minSampleSetsDuringThisMainsCycle(void){
     return copyOf_lowestNoOfSampleSetsPerMainsCycle;
     // The answer should be 192 (50 Hz) or 160 (60 Hz) divided by
     // 2 for 1 CT in use, 3 for 2 CTs in use, etc.
@@ -268,9 +263,8 @@ int EmonLibCM_minSampleSetsDuringThisMainsCycle(void)
 #endif
 
 
-
-void EmonLibCM_Init(void)
-{   
+/////////////////////////////////////////////////////////////////////////////
+void EmonLibCM_Init(void){ //////////////////////DATA INIT///////////////////  
     // Set number of channels to the number defined, else use the defaults
     if (no_of_Iinputs)
     { 
@@ -311,24 +305,22 @@ void EmonLibCM_Init(void)
     datalogEventPending = false;
     ADCsamples_per_datalog_period = datalog_period_in_seconds * MICROSPERSEC / ADCDuration;
         // nominally a 0.16% at 1s, or 0.004% at 10 s truncation error by having this as an integer - insignificant 
-#ifdef  SAMPPIN
-    pinMode(SAMPPIN, OUTPUT);
-    digitalWrite(SAMPPIN, LOW);
-#endif
+    #ifdef  SAMPPIN
+        pinMode(SAMPPIN, OUTPUT);
+        digitalWrite(SAMPPIN, LOW);
+    #endif
 }
 
 /**************************************************************************************************
 *
-*   START
-*
+*   START / STOP
 *
 ***************************************************************************************************/
 
 
-void EmonLibCM_Start(void)
-{
+void EmonLibCM_Start(void){
     firstcycle = true;
-    missing_Voltage = 0;
+    missing_Voltage_ADCsamples = 0;
     
     // Set up the ADC to be free-running 
     // 
@@ -368,8 +360,7 @@ void EmonLibCM_Start(void)
 }
 
 
-void EmonLibCM_StopADC(void)
-{
+void EmonLibCM_StopADC(void){
     // This stop function returns the ADC to default state
     ADCSRA  = (1<<ADPS0)+(1<<ADPS1)+(1<<ADPS2);  // Set the ADC's clock to system clock / 128
     ADCSRA |= (1<<ADEN);                         // Enable the ADC
@@ -385,12 +376,10 @@ void EmonLibCM_StopADC(void)
 *
 *   Retrieve and apply final processing of data ready for reporting
 *
-*
 ***************************************************************************************************/
 
 
-void EmonLibCM_get_readings()
-{
+void EmonLibCM_get_readings(){ // Calculate the final values of V, I, P
     // Copy the variables passed through from the ISR.
     // It is theoretically possible for the values being copied from to be rewritten
     // by the ISR whilst this function is calculating the final values. This second
@@ -399,32 +388,29 @@ void EmonLibCM_get_readings()
     volatile int64_t  protected_sumPB[max_no_of_channels];
     volatile uint64_t protected_sumIsquared[max_no_of_channels];
     volatile int64_t  protected_cumI_deltas[max_no_of_channels];
+    
     cli();
- 
+    
     volatile long protected_samplesDuringThisDatalogPeriod = copyOf_samplesDuringThisDatalogPeriod;
     volatile uint64_t protected_sum_Vsquared = copyOf_sum_Vsquared;
     volatile int64_t  protected_cumV_deltas = copyOf_cumV_deltas;  
-
-    for (int i=0; i<no_of_channels; i++) 
-    {
-        if (ChannelInUse[i])
-        {
+    
+    for (int i=0; i<no_of_channels; i++){
+        if (ChannelInUse[i]){
             protected_sumPA[i] = copyOf_sumPA_CT[i];
             protected_sumPB[i] = copyOf_sumPB_CT[i];
             protected_sumIsquared[i] = copyOf_sumIsquared_CT[i];
             protected_cumI_deltas[i] = copyOf_cumI_deltas[i];
-        }
-        else
-        {
+        }else{
             protected_sumPA[i] = 0;
             protected_sumPB[i] = 0;
             protected_sumIsquared[i] = 0;
             protected_cumI_deltas[i] = 0;
         }
     }           
-
+    
     sei();
-
+    
     // Calculate the final values, scaling for the number of samples and applying calibration coefficients.
     // The final values are deposited in global variables for extraction by the 'getter' functions.
     
@@ -436,8 +422,7 @@ void EmonLibCM_get_readings()
                 - ((double)protected_cumV_deltas * protected_cumV_deltas / protected_samplesDuringThisDatalogPeriod / protected_samplesDuringThisDatalogPeriod)); 
     Vrms *= voltageCal;      
 
-    for (int i=0; i<no_of_channels; i++)    // Current channels
-    {
+    for (int i=0; i<no_of_channels; i++){    // Current channels
         double powerNow;
         double energyNow;
         double VA;
@@ -475,10 +460,8 @@ void EmonLibCM_get_readings()
    
 }
 
-bool EmonLibCM_Ready()
-{
-    if (datalogEventPending) 
-    {
+bool EmonLibCM_Ready(){
+    if (datalogEventPending){
         datalogEventPending = false;
         
         EmonLibCM_get_readings();
@@ -487,25 +470,21 @@ bool EmonLibCM_Ready()
     return false;
 }
 
-
-void EmonLibCM_confirmPolarity()
-{
+void EmonLibCM_confirmPolarity(){
     /* This routine prevents a zero-crossing point from being declared until 
     * a certain number of consecutive samples in the 'other' half of the 
     * waveform have been encountered.  It forms part of the ISR.
     */ 
     static byte count = 0;
     
-    if (polarityUnconfirmed != polarityConfirmedOfLastSampleV) 
-    { 
+    if (polarityUnconfirmed != polarityConfirmedOfLastSampleV){ 
         count++; 
     } 
-    else 
-    {
+    else{
         count = 0; 
     }
 
-    if (count >= POLARITY_CHECK_MAXCOUNT) {
+    if (count >= POLARITY_CHECK_MAXCOUNT){
         count = 0;
         polarityConfirmed = polarityUnconfirmed;
     }
@@ -516,64 +495,59 @@ void EmonLibCM_confirmPolarity()
 *
 *   ADC Interrupt Handling
 *
-*
 ***************************************************************************************************/
 
-void EmonLibCM_allGeneralProcessing_withinISR()
-{
-  if (stop) 
-      EmonLibCM_StopADC();
-  /* This routine deals with activities that are only required at specific points
-   * within each mains cycle.  It forms part of the ISR.
-   */ 
-  static int cycleCountForDatalogging = 0;
-  // a simple routine for checking the performance of this new ISR structure     
+void EmonLibCM_allGeneralProcessing_withinISR(){
+    
+    if (stop) 
+        EmonLibCM_StopADC();
+    
+    // This routine deals with activities that are only required at specific points
+    // within each mains cycle.  It forms part of the ISR.
+    
+    static int cycleCountForDatalogging = 0;
+    // a simple routine for checking the performance of this new ISR structure     
 
-  if (acPresent)
-  {
-      if (polarityConfirmed == POSITIVE) 
-      { 
-          if (polarityConfirmedOfLastSampleV != POSITIVE)
-          {
-            /* Instantaneous power contributions are summed in accumulators during each 
-             * datalogging period.  At the end of each period, copies are made of their 
-             * content for use by the main code.  The accumulators, and any associated
-             * counters are then reset for use during the next period.
-             */       
-            cycleCountForDatalogging ++;
-            #ifdef INTEGRITY
-                if (sampleSetsDuringThisMainsCycle < lowestNoOfSampleSetsPerMainsCycle)
-                {
-                    lowestNoOfSampleSetsPerMainsCycle = sampleSetsDuringThisMainsCycle;
-                }
-                sampleSetsDuringThisMainsCycle = 0;   
-            #endif            
-           
-            // Used in stop start operation, discards the first partial cycle
-            if (firstcycle==true && cycleCountForDatalogging >= min_startup_cycles)
-            {
-                firstcycle = false;
-                cycleCountForDatalogging = 0;
-                for (int i=0; i<no_of_channels; i++) 
-                { 
-                  sumPA_CT[i] = 0;
-                  sumPB_CT[i] = 0;
-                  sumIsquared_CT[i] = 0;
-                  cumI_deltas_CT[i] = 0;
-                }
-                sum_Vsquared = 0;
-                cumV_deltas = 0;
-    #ifdef INTEGRITY
-                lowestNoOfSampleSetsPerMainsCycle = 999;
-    #endif          
-                samplesDuringThisDatalogPeriod = 0;
+    if (acPresent){
+        if (polarityConfirmed == POSITIVE 
+        && polarityConfirmedOfLastSampleV != POSITIVE){ //processing that is specific to the first Vsample in each +ve half cycle
+        // Instantaneous power contributions are summed in accumulators during each 
+        // datalogging period.  At the end of each period (here!), copies are made of their 
+        // content for use by the main code.  The accumulators, and any associated
+        // counters are then reset for use during the next period.
+        
+        cycleCountForDatalogging ++;
+        #ifdef INTEGRITY
+            if (sampleSetsDuringThisMainsCycle < lowestNoOfSampleSetsPerMainsCycle){
+                lowestNoOfSampleSetsPerMainsCycle = sampleSetsDuringThisMainsCycle;
             }
-          
-            if (cycleCountForDatalogging >= datalogPeriodInMainsCycles && firstcycle==false) 
-            { 
-              cycleCountForDatalogging = 0;    
-              for (int i=0; i<no_of_channels; i++) 
-              {
+            sampleSetsDuringThisMainsCycle = 0;   
+        #endif           
+        
+        // Used in stop start operation, discards the first partial cycle
+        if (firstcycle==true && cycleCountForDatalogging >= min_startup_cycles){
+            firstcycle = false;
+
+            cycleCountForDatalogging = 0;
+
+            for (int i=0; i<no_of_channels; i++){ 
+                sumPA_CT[i] = 0;
+                sumPB_CT[i] = 0;
+                sumIsquared_CT[i] = 0;
+                cumI_deltas_CT[i] = 0;
+            }
+            sum_Vsquared = 0;
+            cumV_deltas = 0;
+            #ifdef INTEGRITY
+                lowestNoOfSampleSetsPerMainsCycle = 999;
+            #endif          
+            samplesDuringThisDatalogPeriod = 0;
+        }
+        
+        if (cycleCountForDatalogging >= datalogPeriodInMainsCycles && firstcycle==false){ 
+            cycleCountForDatalogging = 0; 
+
+            for (int i=0; i<no_of_channels; i++){
                 copyOf_sumPA_CT[i] = sumPA_CT[i]; 
                 copyOf_sumPB_CT[i] = sumPB_CT[i]; 
                 sumPA_CT[i] = 0;
@@ -582,86 +556,78 @@ void EmonLibCM_allGeneralProcessing_withinISR()
                 sumIsquared_CT[i] = 0;
                 copyOf_cumI_deltas[i] = cumI_deltas_CT[i];
                 cumI_deltas_CT[i] = 0;
-              }
-              copyOf_cumV_deltas = cumV_deltas;
-              copyOf_sum_Vsquared = sum_Vsquared;
-              sum_Vsquared = 0;
-              cumV_deltas = 0;
-              copyOf_samplesDuringThisDatalogPeriod = samplesDuringThisDatalogPeriod;
-              samplesDuringThisDatalogPeriod = 0;
-    #ifdef INTEGRITY
-              copyOf_lowestNoOfSampleSetsPerMainsCycle = lowestNoOfSampleSetsPerMainsCycle; // (for diags only)
-              lowestNoOfSampleSetsPerMainsCycle = 999;
-    #endif
-              
-              datalogEventPending = true;
-              
-              // Stops the sampling at the end of the cycle if EmonLibCM_Stop() has been called
-              // if (stop) EmonLibCM_StopADC();
             }
-          } // end of processing that is specific to the first Vsample in each +ve half cycle   
-      } // end of processing that is specific to samples where the voltage is positive
-      
-      else // the polarity of this sample is negative
-      {     
-        if (polarityConfirmedOfLastSampleV != NEGATIVE)
-        {
-          // This is the start of a new -ve half cycle (just after the zero-crossing point)
-          //
-          samplesDuringThisCycle = 0;    
-          // check_RF_LED_status();       
-        } // end of processing that is specific to the first Vsample in each -ve half cycle
-      } // end of processing that is specific to samples where the voltage is positive
-  }
-  else
-  {    
-    // In the case where the voltage signal is missing this part counts ADC samples up to the
-    // duration of the datalog period, at which point it will make the readings available.
-    // The reporting interval is now dependent on the processor's internal clock
+            copyOf_cumV_deltas = cumV_deltas;
+            copyOf_sum_Vsquared = sum_Vsquared;
+            sum_Vsquared = 0;
+            cumV_deltas = 0;
 
-    
-    if (missing_Voltage > ADCsamples_per_datalog_period) 
-    {
-        missing_Voltage = 0;  // reset the missing samples count here.
-
-        firstcycle = true;    // firstcycle reset to true so that next reading
-                              // with voltage signal starts from the right place
-        #ifdef INTEGRITY
-            lowestNoOfSampleSetsPerMainsCycle = 999;
-        #endif          
-                          
-        cycleCountForDatalogging = 0;    
-        for (int i=0; i<no_of_channels; i++) 
-        {
-            copyOf_sumPA_CT[i] = 0;
-            copyOf_sumPB_CT[i] = 0;
-            sumPA_CT[i] = 0;
-            sumPB_CT[i] = 0;
-            copyOf_sumIsquared_CT[i] = sumIsquared_CT[i]; 
-            sumIsquared_CT[i] = 0;
-            copyOf_cumI_deltas[i] = cumI_deltas_CT[i];
-            cumI_deltas_CT[i] = 0;
+            copyOf_samplesDuringThisDatalogPeriod = samplesDuringThisDatalogPeriod;
+            samplesDuringThisDatalogPeriod = 0;
+            #ifdef INTEGRITY
+                copyOf_lowestNoOfSampleSetsPerMainsCycle = lowestNoOfSampleSetsPerMainsCycle; // (for diags only)
+                lowestNoOfSampleSetsPerMainsCycle = 999;
+            #endif
+            
+            datalogEventPending = true;
+            
+            // Stops the sampling at the end of the cycle if EmonLibCM_Stop() has been called
+            // if (stop) EmonLibCM_StopADC();
         }
-        copyOf_sum_Vsquared = sum_Vsquared;
-        sum_Vsquared = 0;
-        copyOf_cumV_deltas = cumV_deltas;
-        cumV_deltas = 0;
-        copyOf_samplesDuringThisDatalogPeriod = samplesDuringThisDatalogPeriod;
-        samplesDuringThisDatalogPeriod = 0;
-#ifdef INTEGRITY
-        copyOf_lowestNoOfSampleSetsPerMainsCycle = lowestNoOfSampleSetsPerMainsCycle; // (for diags only)
-        // lowestNoOfSampleSetsPerMainsCycle = 999;
-#endif        
-
-        datalogEventPending = true;
-
-        // Stops the sampling at the end of the cycle if EmonLibCM_Stop() has been called
-        // if (stop) EmonLibCM_StopADC();                
+        
+        }else{ // the polarity of this sample == NEGATIVE
+            if (polarityConfirmedOfLastSampleV != NEGATIVE){
+                // This is the start of a new -ve half cycle (just after the zero-crossing point)
+                samplesDuringThisCycle = 0;    
+                // check_RF_LED_status();       
+            } // end of processing that is specific to the first Vsample in each -ve half cycle
+        } // end of processing that is specific to samples where the voltage is positive
     }
-  }
+    else{ // (acPresent==false) // In the case where the voltage signal is missing this part counts ADC samples up to the
+        // duration of the datalog period, at which point it will make the readings available.
+        // The reporting interval is now dependent on the processor's internal clock
+
+        if (missing_Voltage_ADCsamples > ADCsamples_per_datalog_period){
+            missing_Voltage_ADCsamples = 0;  // reset the missing samples count here.
+
+            firstcycle = true;    // for next reading with voltage signal started from the right place
+            
+            #ifdef INTEGRITY
+                lowestNoOfSampleSetsPerMainsCycle = 999;
+            #endif          
+                                
+            cycleCountForDatalogging = 0;    
+
+            for (int i=0; i<no_of_channels; i++){
+                copyOf_sumPA_CT[i] = 0;
+                copyOf_sumPB_CT[i] = 0;
+                sumPA_CT[i] = 0;
+                sumPB_CT[i] = 0;
+                copyOf_sumIsquared_CT[i] = sumIsquared_CT[i]; 
+                sumIsquared_CT[i] = 0;
+                copyOf_cumI_deltas[i] = cumI_deltas_CT[i];
+                cumI_deltas_CT[i] = 0;
+            }
+            copyOf_sum_Vsquared = sum_Vsquared;
+            sum_Vsquared = 0;
+            copyOf_cumV_deltas = cumV_deltas;
+            cumV_deltas = 0;
+
+            copyOf_samplesDuringThisDatalogPeriod = samplesDuringThisDatalogPeriod;
+            samplesDuringThisDatalogPeriod = 0;
+            #ifdef INTEGRITY
+                copyOf_lowestNoOfSampleSetsPerMainsCycle = lowestNoOfSampleSetsPerMainsCycle; // (for diags only)
+                // lowestNoOfSampleSetsPerMainsCycle = 999;
+            #endif        
+
+            datalogEventPending = true;
+
+            // Stops the sampling at the end of the cycle if EmonLibCM_Stop() has been called
+            // if (stop) EmonLibCM_StopADC();                
+        }
+    }
  
-}
-// end of EmonLibCM_allGeneralProcessing_withinISR()
+}//EmonLibCM_allGeneralProcessing_withinISR()
 
 // This Interrupt Service Routine is for use when the ADC is in the free-running mode.
 // It is executed whenever an ADC conversion has finished, approx every 104 us.  In 
@@ -676,39 +642,38 @@ void EmonLibCM_allGeneralProcessing_withinISR()
 //   A second helper function, confirmPolarity() is used to apply a persistence criterion
 // when the polarity status of each voltage sample is checked. 
 // 
-void EmonLibCM_interrupt()  
-{                                         
-  int rawSample;
-  static unsigned char sample_index = 0;
-  unsigned char next = 0;
-  static int sampleV_minusDC;
-  static int lastSampleV_minusDC; 
-  int sampleI_minusDC;
-  
-  static unsigned int acSense = 0;
-  
-#ifdef SAMPPIN
+void EmonLibCM_interrupt(){
+    int rawSample;
+    static unsigned char sample_index = 0;
+    unsigned char next = 0;
+    static int sampleV_minusDC;
+    static int lastSampleV_minusDC; 
+    int sampleI_minusDC;
+
+    static unsigned int acSense = 0;
+
+    #ifdef SAMPPIN
     digitalWrite(SAMPPIN,HIGH);
-#endif
-  
-  rawSample = ADC;
-  next = sample_index + 2;
-  if (next>no_of_channels)                 // no_of_channels = count of Current channels in use. Voltage channel (0) is always read, so total is no_of_channels + 1
-      next -= no_of_channels+1;
-  
-  ADMUX = 0x40 + ADC_Sequence[next];       // set up the next-but-one conversion
-#ifdef SAMPPIN
+    #endif
+
+    rawSample = ADC;
+    next = sample_index + 2;
+    if (next>no_of_channels){                 // no_of_channels = count of Current channels in use. Voltage channel (0) is always read, so total is no_of_channels + 1
+        next -= no_of_channels+1;
+    }
+    ADMUX = 0x40 + ADC_Sequence[next];       // set up the next-but-one conversion
+    #ifdef SAMPPIN
     digitalWrite(SAMPPIN,LOW);
-#endif
-  // Count ADC samples for timing when voltage is unavailable
-  missing_Voltage++;
+    #endif
+  
+    // Count ADC samples for timing when voltage is unavailable
+    missing_Voltage_ADCsamples++;
 
   
-  if (sample_index==0)                                               // ADC_Sample 0 is always the voltage channel.
-  {
-#ifdef SAMPPIN
-    digitalWrite(SAMPPIN,HIGH);
-#endif
+    if (sample_index==0){ // ADC_Sample 0 is always the voltage channel.
+      #ifdef SAMPPIN
+        digitalWrite(SAMPPIN,HIGH);
+      #endif
       // Removing the d.c. offset - new method:
       // Rather than use a filter, which takes time to settle and will always contain a residual ripple, and which can lock
       // up under start-up conditions, it is possible to remove the effect of the offset at the final stage of measurement.
@@ -725,98 +690,87 @@ void EmonLibCM_interrupt()
       acSense += sampleV_minusDC > 0 ? sampleV_minusDC : -sampleV_minusDC;
       acPresent = acSense > acDetectedThreshold;
       
-      //
-      // deal with activities that are only needed at certain stages of each  
-      // voltage cycle.
+      // deal with activities that are only needed at certain stages of each voltage cycle:
 
-      if (sampleV_minusDC > 0) 
-      { 
+      if (sampleV_minusDC > 0){ 
         polarityUnconfirmed = POSITIVE; 
-      }
-      else 
-      { 
+      }else{ 
        polarityUnconfirmed = NEGATIVE; 
       }
+      
       EmonLibCM_confirmPolarity();
       EmonLibCM_allGeneralProcessing_withinISR();
-      //
+      
       // for real power calculations
-#ifdef INTEGRITY
-      sampleSetsDuringThisMainsCycle++; 
-#endif
+      #ifdef INTEGRITY
+        sampleSetsDuringThisMainsCycle++; 
+      #endif
       samplesDuringThisDatalogPeriod++;      
       samplesDuringThisCycle++;
-      //
+      
       // for the Vrms calculation 
       sum_Vsquared += ((long)sampleV_minusDC * sampleV_minusDC);     // cumulative V^2 (V_ADC x V_ADC)
-      //
+      
       // store items for later use
       cumV_deltas += sampleV_minusDC;                                // for use with offset removal
 
       polarityConfirmedOfLastSampleV = polarityConfirmed;            // for identification of half cycle boundaries
-#ifdef SAMPPIN
+      #ifdef SAMPPIN
         digitalWrite(SAMPPIN,LOW);
-#endif
-      
-  }
+      #endif
+    }
   
-  if (sample_index>=1 && sample_index <= no_of_channels) 
-  {
-      // Now do much the same for each current sample as it is read.
-      // N.B. The Current channels are zero-based but offset by 1 from the ADC sample_index.
-      //  That means Current Channel 0 is read from ADC Sample 1. 
-      //   ADC_Sample 0 is always the voltage channel, handled in the section above.
-      //   ADC_Sample 1 is always a current but not necessarily CT1.
-      // Save the current sample for one sample set, so that the calculation normally uses voltage samples
-      //   from each side of the current sample for interpolation in the phase shift algorithm.
-    
-#ifdef SAMPPIN
-    digitalWrite(SAMPPIN,HIGH);
-#endif
+    if (sample_index>=1 && sample_index <= no_of_channels){ // Now do much the same for each current sample as it is read.
+        // N.B. The Current channels are zero-based but offset by 1 from the ADC sample_index.
+        //  That means Current Channel 0 is read from ADC Sample 1. 
+        //   ADC_Sample 0 is always the voltage channel, handled in the section above.
+        //   ADC_Sample 1 is always a current but not necessarily CT1.
+        // Save the current sample for one sample set, so that the calculation normally uses voltage samples
+        //   from each side of the current sample for interpolation in the phase shift algorithm.
 
-                                          
-      static int lastRawSample[max_no_of_channels];  
-      if (rawSample > 5)                                                                 // process sample only if a plug is inserted
-      {
-        ChannelInUse[sample_index-1] = true;
-       
-        // Offset removal for current is the same as for the voltage.
-      
-        lastRawSample[sample_index-1] -= (ADC_Counts >> 1);                              // remove nominal offset (a small offset will remain)
-       
-        sampleI_minusDC = lastRawSample[sample_index-1];
-              
-        // calculate the "partial real powers" in this sample pair and add to the accumulated sums - fine d.c. offsets are still present
-        sumPA_CT[sample_index-1] += (long)sampleI_minusDC * lastSampleV_minusDC;         // cumulative power A
-        sumPB_CT[sample_index-1] += (long)sampleI_minusDC * sampleV_minusDC;             // cumulative power B
-          
-        // for Irms calculation 
-        sumIsquared_CT[sample_index-1] += (long)sampleI_minusDC * sampleI_minusDC;       // this has the fine d.c. offset still present
-        cumI_deltas_CT[sample_index-1] += sampleI_minusDC;                               // for use with offset removal
-
-      }
-      else
-          ChannelInUse[sample_index-1] = false;
-      
-      lastRawSample[sample_index-1] = rawSample;                                         // Delay everything by 1 sample
-#ifdef SAMPPIN      
-      digitalWrite(SAMPPIN,LOW);
-#endif
-  }
+        #ifdef SAMPPIN
+            digitalWrite(SAMPPIN,HIGH);
+        #endif
+                                            
+        static int lastRawSample[max_no_of_channels];  
+        if (rawSample > 5){                                                                 // process sample only if a plug is inserted
+            ChannelInUse[sample_index-1] = true;
+            
+            // Offset removal for current is the same as for the voltage.
+            
+            lastRawSample[sample_index-1] -= (ADC_Counts >> 1);                              // remove nominal offset (a small offset will remain)
+            
+            sampleI_minusDC = lastRawSample[sample_index-1];
+                    
+            // calculate the "partial real powers" in this sample pair and add to the accumulated sums - fine d.c. offsets are still present
+            sumPA_CT[sample_index-1] += (long)sampleI_minusDC * lastSampleV_minusDC;         // cumulative power A
+            sumPB_CT[sample_index-1] += (long)sampleI_minusDC * sampleV_minusDC;             // cumulative power B
+                
+            // for Irms calculation 
+            sumIsquared_CT[sample_index-1] += (long)sampleI_minusDC * sampleI_minusDC;       // this has the fine d.c. offset still present
+            cumI_deltas_CT[sample_index-1] += sampleI_minusDC;                               // for use with offset removal
+        }
+        else{ // (rawSample <= 5)
+            ChannelInUse[sample_index-1] = false;
+        }
+        
+        lastRawSample[sample_index-1] = rawSample;                                         // Delay everything by 1 sample
+        #ifdef SAMPPIN
+        digitalWrite(SAMPPIN,LOW);
+        #endif
+    }
   
   sample_index++; // advance the control flag
   if (sample_index>no_of_channels) sample_index = 0;
 }
 
 /**************************************************************************************************
-*
 *    ISR
-*
-*
 ***************************************************************************************************/
 
-ISR(ADC_vect) 
-{
+ISR(ADC_vect){
+
     EmonLibCM_interrupt();
+
 }
 
