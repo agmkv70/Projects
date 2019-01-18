@@ -100,8 +100,7 @@ float readThermocoupleMAX6675() {
   v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
   
   digitalWrite(MAX6675_CS, HIGH);
-  if (v & 0x4) 
-  { // Bit 2 indicates if the thermocouple is disconnected
+  if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
     return NAN;     
   }
 	
