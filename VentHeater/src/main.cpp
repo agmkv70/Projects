@@ -72,7 +72,7 @@ float cumulatedUndersteps = 0;
 int ErrorMeasTemp=0; //flag of temp sensor lag - don't change state if can't read inputs properly
 int ErrorTempBoiler=0,ErrorTempFloorIn=0,ErrorTempFloorOut=0,ErrorTempHome=0;
 
-int mainTimerId, boilerPWMTimerId;
+int mainTimerId, boilerPWMTimerId, KTCtimerID;
 
 float fround(float r, byte dec){
 	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
@@ -109,6 +109,11 @@ float readThermocoupleMAX6675() {
   v >>= 3;
   // The remaining bits are the number of 0.25 degree (C) counts
   return (float)v*0.25; //returning float
+}
+
+void KTCtimer_StartEvent(){
+	Serial.print("KTC_MAX6675 = ");
+	Serial.println(readThermocoupleMAX6675());
 }
 
 void HomePIDEvaluation(){
@@ -528,6 +533,7 @@ void setup(void) {
 
   pinMode(MAX6675_CS,OUTPUT);
   digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
+  KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
 	
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
@@ -583,8 +589,4 @@ void setup(void) {
 void loop(void) {
   timer.run();
   checkReadCAN();
-	
-  Serial.print("KTC_MAX6675 = ");
-  Serial.println(readThermocoupleMAX6675());
-  delay(2000);
 }
