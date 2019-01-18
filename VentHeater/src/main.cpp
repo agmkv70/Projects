@@ -2,7 +2,12 @@
 
 #include <OneWire.h>
 
-//#define testmode
+#define testmode
+
+//K-thermocouple pins:
+#define MAX6675_CS   10
+#define MAX6675_SO   12
+#define MAX6675_SCK  13
 
 #define CAN_PIN_INT 9    
 #define CAN_PIN_CS 10 
@@ -74,6 +79,36 @@ float fround(float r, byte dec){
 	r=(long)(r+0.5);
 	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
 	return r;
+}
+
+float readThermocoupleMAX6675() {
+  uint16_t v;
+  pinMode(MAX6675_CS, OUTPUT);
+  pinMode(MAX6675_SO, INPUT);
+  pinMode(MAX6675_SCK, OUTPUT);
+  
+  digitalWrite(MAX6675_CS, LOW);
+  delay(1);
+
+  // Read in 16 bits,
+  //  15    = 0 always
+  //  14..2 = 0.25 degree counts MSB First
+  //  2     = 1 if thermocouple is open circuit  
+  //  1..0  = uninteresting status
+  v = shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  v <<= 8;
+  v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  
+  digitalWrite(MAX6675_CS, HIGH);
+  if (v & 0x4) 
+  { // Bit 2 indicates if the thermocouple is disconnected
+    return NAN;     
+  }
+	
+  // The lower three bits (0,1,2) are discarded status bits
+  v >>= 3;
+  // The remaining bits are the number of 0.25 degree (C) counts
+  return (float)v*0.25; //returning float
 }
 
 void HomePIDEvaluation(){
@@ -491,6 +526,9 @@ void setup(void) {
 	Serial.begin(115200);
 	#endif
 
+  pinMode(MAX6675_CS,OUTPUT);
+  digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
+	
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
 
@@ -545,4 +583,8 @@ void setup(void) {
 void loop(void) {
   timer.run();
   checkReadCAN();
+	
+  Serial.print("KTC_MAX6675 = ");
+  Serial.println(readThermocoupleMAX6675());
+  delay(2000);
 }
