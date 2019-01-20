@@ -1,51 +1,50 @@
-///VentHeater///
+///VentTEH///
 
 #include <OneWire.h>
+#include <DHT.h>
 
 #define testmode
 
 //K-thermocouple pins:
-#define MAX6675_CS   10
+#define MAX6675_CS   PIN_A4
 #define MAX6675_SO   12
 #define MAX6675_SCK  13
 
 #define CAN_PIN_INT 9    
-#define CAN_PIN_CS 10 
+#define CAN_PIN_CS  10 
 
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
-#define ValveMinusPin 7
-#define ValvePlusPin  8
 #define LED_PIN 13
-
-#define BOILER_ON_PIN 6 //D6 on nano //uno was 14 //(analog 0 same as digital 14)
+#define ValveOpen_PIN   PIN_A2
+#define ValveClose_PIN  PIN_A3
+#define TEH_ON_PIN  3
+#define PROTECTION_READ_PIN 4 //read protection
+#define PROTECTION_ON_PIN   5 //turn on protection
 
 int VALVESTATUS=0, //vpin37 //0 1    manual / auto floorIn
-		PIDSTATUS=0;	 //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+		PIDSTATUS=0;	 //vpin36 //0 1 2  manual TEHPower / auto TEHTemp / auto HomeTemp
 
-float BoilerPower=0; //Boiler power on time factor 0.0 .. 10.0 float
-int BoilerPowerCurrentStateOnOff=0; //0=on or 1=off
-int BoilerPowerPeriodMinutes=8; //period of PWM
-long BoilerPeriodMillis=60000L; //period of PWM in millis
-long BoilerPWMCycleStart=0; //last cycle start
-float BoilerTargetTemp=23;
-float BoilerPID_KCoef=0.1, //for convenience multiply all BoilerPID_K
-	BoilerPID_Kp=6, BoilerPID_Ki=0.2, BoilerPID_Kd=9;
-float BoilerPID_Isum=0, BoilerPID_prevDelta=0;
+float TEHPower=0; //TEH power on time factor 0.0 .. 10.0 float
+int TEHPowerCurrentStateOnOff=0; //0=on or 1=off
+int TEHPowerPeriodMinutes=8; //period of PWM
+long TEHPeriodMillis=60000L; //period of PWM in millis
+long TEHPWMCycleStart=0; //last cycle start
+float AirOutTargetTemp=23;
+float TEHPID_KCoef=0.1, //for convenience multiply all TEHPID_K
+	TEHPID_Kp=6, TEHPID_Ki=0.2, TEHPID_Kd=9;
+float TEHPID_Isum=0, TEHPID_prevDelta=0;
 
-float HomeTargetTemp=21;
-float BoilerTargetTemp_MIN=21;
-float BoilerTargetTemp_MAX=29;
-float HomePID_KCoef=0.01, //for convenience multiply all HomePID_K
-	HomePID_Kp=6, HomePID_Ki=1, HomePID_Kd=9;
-float HomePID_Isum=0, HomePID_prevDelta=0;
+float AirOutTargetTemp_MIN=18;
+float AirOutTargetTemp_MAX=24;
 
-//initdiff: 22.06 21.44 22.12
-OneWire  TempDS_Boiler(2);  // on pin 2 (a 4.7K resistor to 5V is necessary)
-OneWire  TempDS_FloorIn(3);  // on pin 3 (a 4.7K resistor to 5V is necessary)
-OneWire  TempDS_FloorOut(4);  // on pin 4 (a 4.7K resistor to 5V is necessary)
-OneWire  TempDS_Home(5);  // on pin 5 (a 4.7K resistor to 5V is necessary)
+float tempAirOut=20, offsetAirOut=0;
+float tempTargetAirOut  = 20;
+int ErrorTempAirOut=0;
+
+DHT dht_AirIn(PIN_A6, DHT22);
+OneWire  TempDS_AirOut(PIN_A7); 
 
 #ifdef testmode
 int MainCycleInterval=10; //изредка 60
@@ -53,26 +52,10 @@ int MainCycleInterval=10; //изредка 60
 #ifndef testmode
 int MainCycleInterval=60; //изредка 60
 #endif
-int eepromVIAddr=1000,eepromValueIs=7750+2; //if this is in eeprom, then we got valid values, not junk
-// 21.12 20.94 21.19
-// 21.06 20.87 21.12
-float tempBoiler=20, offsetBoiler=0;
-float tempFloorIn=20, offsetFloorIn=0;//0.562;
-float tempFloorOut=20, offsetFloorOut=0;//-0.062;
-float tempHome=0, offsetHome=0;
+int eepromVIAddr=1000,eepromValueIs=7750+0; //if this is in eeprom, then we got valid values, not junk
 
-float tempTargetFloorIn  = 24;
-float tempTargetFloorOut = 22.5;
-float tempMaxFloorIn     = 29;
-float tempMaxFloorInOutDiff  = 8;
-unsigned long Valve_OneMoveStepMillis = 1000L;
-float maxMoveSec = 10;
-float minValveStep = 1;
-float cumulatedUndersteps = 0;
-int ErrorMeasTemp=0; //flag of temp sensor lag - don't change state if can't read inputs properly
-int ErrorTempBoiler=0,ErrorTempFloorIn=0,ErrorTempFloorOut=0,ErrorTempHome=0;
+int mainTimerId, TEHPWMTimerId, KTCtimerID;
 
-int mainTimerId, boilerPWMTimerId, KTCtimerID;
 
 float fround(float r, byte dec){
 	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
@@ -81,12 +64,13 @@ float fround(float r, byte dec){
 	return r;
 }
 
+//Heater K-thermocouple:
 float readThermocoupleMAX6675() {
   uint16_t v;
-  pinMode(MAX6675_CS, OUTPUT);
-  pinMode(MAX6675_SO, INPUT);
-  pinMode(MAX6675_SCK, OUTPUT);
+  //pinMode(MAX6675_SO, INPUT);
+  //pinMode(MAX6675_SCK, OUTPUT);
   
+	digitalWrite(CAN_PIN_CS, HIGH);
   digitalWrite(MAX6675_CS, LOW);
   delay(1);
 
@@ -100,6 +84,7 @@ float readThermocoupleMAX6675() {
   v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
   
   digitalWrite(MAX6675_CS, HIGH);
+	digitalWrite(CAN_PIN_CS, LOW);
   if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
     return NAN;     
   }
@@ -115,130 +100,80 @@ void KTCtimer_StartEvent(){
 	Serial.println(readThermocoupleMAX6675());
 }
 
-void HomePIDEvaluation(){
-	float delta = HomeTargetTemp - tempHome;
-	
-	//sum Integral part of PID only if our result is not saturated:
-	if(BoilerTargetTemp<=BoilerTargetTemp_MIN && delta<0)
-		; //don't go too far down
-	else if(BoilerTargetTemp>=BoilerTargetTemp_MAX && delta>0)
-		; //don't go too far up
-	else
-		HomePID_Isum = HomePID_Isum + delta;
-
-	float P = (HomePID_Kp * HomePID_KCoef) * delta;
-	float I = (HomePID_Ki * HomePID_KCoef) * HomePID_Isum;
-	float D = (HomePID_Kd * HomePID_KCoef) * (delta - HomePID_prevDelta);
-	HomePID_prevDelta = delta;
-
-  BoilerTargetTemp = BoilerTargetTemp + P + I + D;
-	
-	if(BoilerTargetTemp < BoilerTargetTemp_MIN){
-		BoilerTargetTemp = BoilerTargetTemp_MIN;
-	}else if(BoilerTargetTemp > BoilerTargetTemp_MAX){
-		BoilerTargetTemp = BoilerTargetTemp_MAX;
-	}
-
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomePID_P, fround(P,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomePID_I, fround(I,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomePID_D, fround(D,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomeTargetTempGraph, fround(HomeTargetTemp,1));
+void DHTtimer_StartEvent(){
+	Serial.print("DHT T= ");
+	Serial.println(readThermocoupleMAX6675());
 }
 
-void BoilerPIDEvaluation(){
-	float delta = BoilerTargetTemp - tempBoiler;
+void TEHPIDEvaluation(){
+	float delta = AirOutTargetTemp - tempAirOut;
 	
 	//sum Integral part of PID only if our result is not saturated:
-	if(BoilerPower<=0 && delta<0)
+	if(TEHPower<=0 && delta<0)
 		; //don't go too far down
-	else if(BoilerPower>=10 && delta>0)
+	else if(TEHPower>=10 && delta>0)
 		; //don't go too far up
 	else
-		BoilerPID_Isum = BoilerPID_Isum + delta;
+		TEHPID_Isum = TEHPID_Isum + delta;
 
-	float P = (BoilerPID_Kp * BoilerPID_KCoef) * delta;
-	float I = (BoilerPID_Ki * BoilerPID_KCoef) * BoilerPID_Isum;
-	float D = (BoilerPID_Kd * BoilerPID_KCoef) * (delta - BoilerPID_prevDelta);
-	BoilerPID_prevDelta = delta;
+	float P = (TEHPID_Kp * TEHPID_KCoef) * delta;
+	float I = (TEHPID_Ki * TEHPID_KCoef) * TEHPID_Isum;
+	float D = (TEHPID_Kd * TEHPID_KCoef) * (delta - TEHPID_prevDelta);
+	TEHPID_prevDelta = delta;
 
-  BoilerPower = BoilerPower + P + I + D;
+  TEHPower = TEHPower + P + I + D;
 	
-	if(BoilerPower<0){
-		BoilerPower=0;
-	}else if(BoilerPower>10){
-		BoilerPower=10;
+	if(TEHPower<0){
+		TEHPower=0;
+	}else if(TEHPower>10){
+		TEHPower=10;
 	}
 
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_P, fround(P,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_I, fround(I,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPID_D, fround(D,2));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPower, fround(BoilerPower,1));
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerTargetTempGraph, fround(BoilerTargetTemp,1));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_P, fround(P,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(I,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTempGraph, fround(AirOutTargetTemp,1));
 }
 
-void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
-	long millisFromStart = millis()-BoilerPWMCycleStart;
+void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
+	long millisFromStart = millis()-TEHPWMCycleStart;
 		
-	if( millisFromStart >= BoilerPeriodMillis ){ //time to START:
-		if( !ErrorTempBoiler && PIDSTATUS>0 ){
-			if( !ErrorTempHome && PIDSTATUS>1 ){  //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
-				HomePIDEvaluation(); //evaluate BoilerTargetTemp
-			}
-			BoilerPIDEvaluation(); //once: on boiler pwm cycle start and only if temperature is really read
+	if( millisFromStart >= TEHPeriodMillis ){ //time to START:
+		if( !ErrorTempAirOut && PIDSTATUS>0 ){
+			TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
 		}
-	  BoilerPWMCycleStart = millis();
+	  TEHPWMCycleStart = millis();
 		millisFromStart=0;
 	}
 
-	//evaluate millisOn (so to say, transformation of BoilerPower):
-	long millisOn = (BoilerPower/10*(float)BoilerPeriodMillis); //sould be on in cycle
-	if(BoilerPower<0.1f) millisOn = 0;
-	else if(BoilerPower>9.9f) millisOn = BoilerPeriodMillis;
+	//evaluate millisOn (so to say, transformation of TEHPower):
+	long millisOn = (TEHPower/10*(float)TEHPeriodMillis); //sould be on in cycle
+	if(TEHPower<0.1f) millisOn = 0;
+	else if(TEHPower>9.9f) millisOn = TEHPeriodMillis;
 
-	if(BoilerPowerCurrentStateOnOff==0){ //we are off - we can only turn on:
+	if(TEHPowerCurrentStateOnOff==0){ //we are off - we can only turn on:
 		if( millisFromStart < millisOn ){ //time to START:
-			if(millisOn > 0) BoilerPowerCurrentStateOnOff=1;
-			addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
+			if(millisOn > 0) TEHPowerCurrentStateOnOff=1;
+			//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPowerOnOff, TEHPowerCurrentStateOnOff);
 		}
-	}else{ //BoilerPowerCurrentStateOnOff==1 //we are ON - we can only turn off:
+	}else{ //TEHPowerCurrentStateOnOff==1 //we are ON - we can only turn off:
 			if( millisFromStart >= millisOn ){ //time to TURN OFF:
-				if(millisOn < BoilerPeriodMillis)	BoilerPowerCurrentStateOnOff=0;
-				addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
+				if(millisOn < TEHPeriodMillis)	TEHPowerCurrentStateOnOff=0;
+				//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPowerOnOff, TEHPowerCurrentStateOnOff);
 			}
 	}
 
-  if(BoilerPowerCurrentStateOnOff==1)
-		digitalWrite(BOILER_ON_PIN,HIGH);
+  if(TEHPowerCurrentStateOnOff==1)
+		digitalWrite(TEH_ON_PIN,HIGH);
 	else
-		digitalWrite(BOILER_ON_PIN,LOW);
-}
-
-void ValveStop() {
-  digitalWrite(ValveMinusPin,HIGH);  //off
-  digitalWrite(ValvePlusPin, HIGH);  //off
-}
-void ValveStartDecrease() {
-  digitalWrite(ValvePlusPin, HIGH);  //off
-  digitalWrite(ValveMinusPin,LOW);   //on
-}
-void ValveStartIncrease() {
-  digitalWrite(ValveMinusPin,HIGH);  //off
-  digitalWrite(ValvePlusPin, LOW);   //on
+		digitalWrite(TEH_ON_PIN,LOW);
 }
 
 void TempDS_AllStartConvertion() {
-  TempDS_Boiler.reset();
-  TempDS_Boiler.write(0xCC); //skip rom - next command to all //ds.select(addr);
-  TempDS_Boiler.write(0x44); // start conversion
-  TempDS_FloorIn.reset();
-  TempDS_FloorIn.write(0xCC); //skip rom - next command to all //ds.select(addr);
-  TempDS_FloorIn.write(0x44); // start conversion
-  TempDS_FloorOut.reset();
-  TempDS_FloorOut.write(0xCC); //skip rom - next command to all //ds.select(addr);
-  TempDS_FloorOut.write(0x44); // start conversion
-  TempDS_Home.reset();
-  TempDS_Home.write(0xCC); //skip rom - next command to all //ds.select(addr);
-  TempDS_Home.write(0x44); // start conversion
+  TempDS_AirOut.reset();
+  TempDS_AirOut.write(0xCC); //skip rom - next command to all //ds.select(addr);
+  TempDS_AirOut.write(0x44); // start conversion
 }
 
 byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object and sensor name, returns 1 if OK
@@ -288,113 +223,28 @@ void MainCycle_StartEvent() {
 	Serial.println("Start coversion... ");
 	#endif
 
-	timer.setTimeout(1000L, MainCycle_ReadTempAndMoveValveEvent); //start once after timeout
+	timer.setTimeout(1000L, MainCycle_ReadTempAndMoveValveEvent); //start once after timeout 1s
 }
 
 void MainCycle_ReadTempAndMoveValveEvent() {
 
-  ErrorTempBoiler=0;
-	ErrorTempFloorIn=0;
-	ErrorTempFloorOut=0;
-	ErrorTempHome=0;
-
-	ErrorMeasTemp=0;
+  ErrorTempAirOut=0;
 	
-	if( !TempDS_GetTemp(&TempDS_Boiler,"BOILER",&tempBoiler) ){
-	 ErrorMeasTemp++; ErrorTempBoiler++;
-	}else
-	  tempBoiler += offsetBoiler;
-  
-	if( !TempDS_GetTemp(&TempDS_FloorIn,"FLOORIN",&tempFloorIn) ){
-	 ErrorMeasTemp++; ErrorTempFloorIn++;
-	}else 
-	  tempFloorIn += offsetFloorIn;
-  
-	if( !TempDS_GetTemp(&TempDS_FloorOut,"FLOOROUT",&tempFloorOut) ){
-	 ErrorMeasTemp++; ErrorTempFloorOut++;
-	}else 
-	  tempFloorOut += offsetFloorOut;
+	//ErrorMeasTempTEH=0;
 	
-	if( !TempDS_GetTemp(&TempDS_Home,"HOME",&tempHome) ){
-	 ErrorMeasTemp++; ErrorTempHome++;
-	}else
-	  tempHome += offsetHome;
-
+	if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
+	 //ErrorMeasTempTEH++; 
+	 ErrorTempAirOut++;
+	}
+  
 	#ifdef testmode
     Serial.println();
 	#endif
   
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Boiler,fround(tempBoiler,1)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Home,fround(tempHome,1)); //rounded 0.0 value
-
-  if( !ErrorMeasTemp && VALVESTATUS == 1 ){ //vpin37 = 0 1    manual / auto floorIn
-	  float needChangeInTemp=0, needChangeSeconds=0;
-
-		needChangeInTemp = tempTargetFloorIn - tempFloorIn;
-		needChangeSeconds = needChangeInTemp*3;
-		
-		needChangeSeconds += cumulatedUndersteps;
-		cumulatedUndersteps=0;
-
-		//check min, max restrictions:
-		if(tempFloorIn >= tempMaxFloorIn && needChangeSeconds>0){
-		  needChangeSeconds = 0;
-		}
-		if(tempFloorIn-tempFloorOut >= tempMaxFloorInOutDiff && needChangeSeconds>0){
-		  needChangeSeconds = 0;
-		}
-		if(tempFloorIn-tempFloorOut > tempMaxFloorInOutDiff){
-		  needChangeSeconds = -(tempMaxFloorInOutDiff - (tempFloorIn-tempFloorOut))*3;
-		}
-    
-		#ifdef testmode
-		Serial.print("motor calc sec = ");
-		Serial.print(needChangeSeconds);
-		#endif
-
-		if( needChangeSeconds < -maxMoveSec) //too left
-			needChangeSeconds = -maxMoveSec;
-		if(needChangeSeconds > maxMoveSec)   //too right
-			needChangeSeconds = maxMoveSec;
-
-		if( 0 < -needChangeSeconds && -needChangeSeconds < minValveStep){ //too small step left
-			cumulatedUndersteps -= needChangeSeconds;
-			needChangeSeconds = 0;
-		}
-		if( 0 < needChangeSeconds && needChangeSeconds < minValveStep){ //too small step right
-			cumulatedUndersteps += needChangeSeconds;
-			needChangeSeconds = 0;
-		}
-
-		#ifdef testmode
-		Serial.print("  motor real millis = ");
-		Serial.println((long)(needChangeSeconds*1000));
-		#endif
-		long needChangeMillis;
-
-		//start moving valve:
-		if(needChangeSeconds < 0){
-
-		  needChangeMillis = (-needChangeSeconds) * (float)Valve_OneMoveStepMillis;
-
-		  //addCANMessage2Queue(VPIN_MotorValveMinus,needChangeMillis);
-
-		  ValveStartDecrease();
-			timer.setTimeout(needChangeMillis, ValveStop);
-
-		}else if(needChangeSeconds > 0){
-
-		  needChangeMillis = needChangeSeconds * (float)Valve_OneMoveStepMillis;
-
-		  //addCANMessage2Queue(VPIN_MotorValvePlus,needChangeMillis);
-
-			ValveStartIncrease();
-			timer.setTimeout(needChangeMillis, ValveStop);
-		}
-	}
-	//addCANMessage2Queue(VPIN_BoilerPower,fround(BoilerPower,2); //rounded 0.00 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOut,fround(tempAirOut,1)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
+	
 }
 
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
@@ -419,39 +269,30 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
-		case VPIN_ManualFloorIn:
-			tempTargetFloorIn = vPinValueFloat;
+		case VPIN_TargetAirOut:
+			tempTargetAirOut = vPinValueFloat;
 			EEPROM_storeValues();
 			break;
-		case VPIN_tempTargetFloorOut:
-			tempTargetFloorOut = vPinValueFloat;
-			EEPROM_storeValues();
-			break;
-		case VPIN_ManualMotorValveMinus:
-			if(vPinValueFloat==0) ValveStop(); else ValveStartDecrease();
-			break;
-		case VPIN_ManualMotorValvePlus:
-			if(vPinValueFloat==0) ValveStop(); else ValveStartIncrease();
-			break;
-		case VPIN_SetBoilerPowerPeriodMinutes:
+		//case VPIN_ManualMotorValveMinus:
+		//	if(vPinValueFloat==0) ValveStop(); else ValveStartDecrease();
+		//	break;
+		//case VPIN_ManualMotorValvePlus:
+		//	if(vPinValueFloat==0) ValveStop(); else ValveStartIncrease();
+		//	break;
+		case VPIN_SetTEHPowerPeriodMinutes:
 			if(vPinValueFloat<1) 
 				vPinValueFloat=1;
-			BoilerPowerPeriodMinutes = vPinValueFloat;
-			BoilerPeriodMillis = (long)BoilerPowerPeriodMinutes*60000L;
+			TEHPowerPeriodMinutes = vPinValueFloat;
+			TEHPeriodMillis = (long)TEHPowerPeriodMinutes*60000L;
 			EEPROM_storeValues();
 			break;
-		case VPIN_BoilerPID_Kp: BoilerPID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_BoilerPID_Ki: BoilerPID_Ki = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_BoilerPID_Kd: BoilerPID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_BoilerPower:  BoilerPower  = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_BoilerTargetTemp: BoilerTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_SetBoilerPID_Isum_Zero: BoilerPID_Isum=0; break;
+		case VPIN_TEHPID_Kp: TEHPID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_TEHPID_Ki: TEHPID_Ki = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_TEHPID_Kd: TEHPID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_TEHPower:  TEHPower  = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_AirOutTargetTemp: AirOutTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_SetTEHPID_Isum_Zero: TEHPID_Isum=0; break;
 
-		case VPIN_HomePID_Kp: HomePID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_HomePID_Ki: HomePID_Ki = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_HomePID_Kd: HomePID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_HomeTargetTemp: HomeTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_SetHomePID_Isum_Zero: HomePID_Isum=0; break;
 		default:
 			#ifdef testmode
 			Serial.print("! Warning: received unneeded CAN message: VPIN=");
@@ -473,17 +314,12 @@ void EEPROM_storeValues(){
 
   EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
   EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
-  EEPROM.put(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
-  EEPROM.put(VPIN_BoilerPID_Kp*sizeof(float), 		BoilerPID_Kp);
-  EEPROM.put(VPIN_BoilerPID_Ki*sizeof(float), 		BoilerPID_Ki);
-  EEPROM.put(VPIN_BoilerPID_Kd*sizeof(float), 		BoilerPID_Kd);
-  EEPROM.put(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM.put(VPIN_BoilerTargetTemp*sizeof(float), BoilerTargetTemp);
-
-	EEPROM.put(VPIN_HomeTargetTemp*sizeof(float), HomeTargetTemp);
-  EEPROM.put(VPIN_HomePID_Kp*sizeof(float), 		HomePID_Kp);
-  EEPROM.put(VPIN_HomePID_Ki*sizeof(float), 		HomePID_Ki);
-  EEPROM.put(VPIN_HomePID_Kd*sizeof(float), 		HomePID_Kd);
+  EEPROM.put(VPIN_SetTEHPowerPeriodMinutes*sizeof(float), TEHPowerPeriodMinutes);
+  EEPROM.put(VPIN_TEHPID_Kp*sizeof(float), 		TEHPID_Kp);
+  EEPROM.put(VPIN_TEHPID_Ki*sizeof(float), 		TEHPID_Ki);
+  EEPROM.put(VPIN_TEHPID_Kd*sizeof(float), 		TEHPID_Kd);
+  EEPROM.put(VPIN_TEHPower*sizeof(float), 			TEHPower);
+  EEPROM.put(VPIN_AirOutTargetTemp*sizeof(float), AirOutTargetTemp);
 
 	EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			PIDSTATUS);
   EEPROM.put(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
@@ -506,17 +342,12 @@ void EEPROM_restoreValues(){
   
   EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
   EEPROM.get(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
-  EEPROM.get(VPIN_SetBoilerPowerPeriodMinutes*sizeof(float), BoilerPowerPeriodMinutes);
-  EEPROM.get(VPIN_BoilerPID_Kp*sizeof(float), 			BoilerPID_Kp);
-  EEPROM.get(VPIN_BoilerPID_Ki*sizeof(float), 			BoilerPID_Ki);
-	EEPROM.get(VPIN_BoilerPID_Kd*sizeof(float), 			BoilerPID_Kd);
-  EEPROM.get(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM.get(VPIN_BoilerTargetTemp*sizeof(float), 	BoilerTargetTemp);
-
-	EEPROM.get(VPIN_HomeTargetTemp*sizeof(float), 		HomeTargetTemp);
-	EEPROM.get(VPIN_HomePID_Kp*sizeof(float), 				HomePID_Kp);
-  EEPROM.get(VPIN_HomePID_Ki*sizeof(float), 				HomePID_Ki);
-	EEPROM.get(VPIN_HomePID_Kd*sizeof(float), 				HomePID_Kd);
+  EEPROM.get(VPIN_SetTEHPowerPeriodMinutes*sizeof(float), TEHPowerPeriodMinutes);
+  EEPROM.get(VPIN_TEHPID_Kp*sizeof(float), 			TEHPID_Kp);
+  EEPROM.get(VPIN_TEHPID_Ki*sizeof(float), 			TEHPID_Ki);
+	EEPROM.get(VPIN_TEHPID_Kd*sizeof(float), 			TEHPID_Kd);
+  EEPROM.get(VPIN_TEHPower*sizeof(float), 			TEHPower);
+  EEPROM.get(VPIN_AirOutTargetTemp*sizeof(float), 	AirOutTargetTemp);
 
 	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
 	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
@@ -531,14 +362,15 @@ void setup(void) {
 	#endif
 
   pinMode(MAX6675_CS,OUTPUT);
-  digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
+	digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
   KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
-	
+	return;
+
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
 
-	pinMode(BOILER_ON_PIN,OUTPUT);
-  digitalWrite(BOILER_ON_PIN,LOW); //turn off BOILER
+	pinMode(TEH_ON_PIN,OUTPUT);
+  digitalWrite(TEH_ON_PIN,LOW); //turn off TEH
 	
   //turn off relays:
   pinMode(ValveMinusPin,OUTPUT);
@@ -580,8 +412,8 @@ void setup(void) {
 
   mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 	delay(100); //for two timers not at once
-	boilerPWMTimerId = timer.setInterval(1000L, BoilerPWMTimerEvent); //1 sec pwm discretion
-	BoilerPWMCycleStart = millis();
+	TEHPWMTimerId = timer.setInterval(1000L, TEHPWMTimerEvent); //1 sec pwm discretion
+	TEHPWMCycleStart = millis();
 }
 
 ////////////////////////////////////////////////LOOP////////////////////////////
