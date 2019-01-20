@@ -23,47 +23,50 @@
 #define PROTECTION_READ_PIN 4 //read protection
 #define PROTECTION_ON_PIN   5 //turn on protection
 
-int VALVESTATUS=0, //vpin37 //0 1    manual / auto floorIn
-		PIDSTATUS=0;	 //vpin36 //0 1 2  manual TEHPower / auto TEHTemp / auto HomeTemp
+int targetHeaterStatus=0, //off/on
+		currentHeaterStatus=0, //0(off,standby),1(opening),2(opening+heating),
+		                      //3(heating), 4(blowing(cooling)), 5(closing), 6(ERROR)
+    VALVESTATUS=0, //0 1 (off/on)
+		TEHPIDSTATUS=0;	 //0 1 (off/on)
+
 
 float TEHPower=0; //TEH power on time factor 0.0 .. 10.0 float
-int TEHPowerCurrentStateOnOff=0; //0=on or 1=off
-int TEHPowerPeriodMinutes=8; //period of PWM
-long TEHPeriodMillis=60000L; //period of PWM in millis
-long TEHPWMCycleStart=0; //last cycle start
-float AirOutTargetTemp=23;
+int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
+int   TEHPowerPeriodSeconds=5; //period of PWM in sec
+long  TEHPeriodMillis=5000L; //period of PWM in millis
+long  TEHPWMCycleStart=0; //last cycle start
 float TEHPID_KCoef=0.1, //for convenience multiply all TEHPID_K
-	TEHPID_Kp=6, TEHPID_Ki=0.2, TEHPID_Kd=9;
+	    TEHPID_Kp=6, TEHPID_Ki=0.2, TEHPID_Kd=9;
 float TEHPID_Isum=0, TEHPID_prevDelta=0;
 
+float AirOutTargetTemp=21;
 float AirOutTargetTemp_MIN=18;
 float AirOutTargetTemp_MAX=24;
 
-float tempAirOut=20, offsetAirOut=0;
-float tempTargetAirOut  = 20;
-int ErrorTempAirOut=0;
+float TEHMaxTemp=250;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
+float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
+//надо двойную защиту: по абс.макс. и по скорости прироста температуры выставить:
+//- если за заданное время прирост больше максимума - значит нет продува!
+
+float tempAirIn=0, humidityIn=0, tempTEH=0;
+float tempAirOut=20, offsetAirOut=0; //температура и калибровочное смещение(если знаю)
+float tempTargetAirOut=20;
+int   ErrorTempAirOut=0;
 
 DHT dht_AirIn(PIN_A6, DHT22);
 OneWire  TempDS_AirOut(PIN_A7); 
 
 #ifdef testmode
-int MainCycleInterval=10; //изредка 60
+int MainCycleInterval=10; //часто - отадка 10 сек
 #endif
 #ifndef testmode
-int MainCycleInterval=60; //изредка 60
+int MainCycleInterval=60; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7750+0; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+0; //if this is in eeprom, then we got valid values, not junk
 
 int mainTimerId, TEHPWMTimerId, KTCtimerID;
 
-
-float fround(float r, byte dec){
-	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
-	r=(long)(r+0.5);
-	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
-	return r;
-}
-
+////////////////////////////////////////////////////////////////////////
 //Heater K-thermocouple:
 float readThermocoupleMAX6675() {
   uint16_t v;
@@ -105,6 +108,7 @@ void DHTtimer_StartEvent(){
 	Serial.println(readThermocoupleMAX6675());
 }
 
+///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
 	float delta = AirOutTargetTemp - tempAirOut;
 	
@@ -170,6 +174,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 		digitalWrite(TEH_ON_PIN,LOW);
 }
 
+/////////////////////////////////general program////////////////////////
 void TempDS_AllStartConvertion() {
   TempDS_AirOut.reset();
   TempDS_AirOut.write(0xCC); //skip rom - next command to all //ds.select(addr);
@@ -209,6 +214,7 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
 
   return 1; //OK
 }
+
 void MainCycle_ReadTempAndMoveValveEvent(); //declaration
 
 void MainCycle_StartEvent() {
@@ -224,8 +230,7 @@ void MainCycle_StartEvent() {
 	#endif
 
 	timer.setTimeout(1000L, MainCycle_ReadTempAndMoveValveEvent); //start once after timeout 1s
-}
-
+} //wait 1 sec and run next function:
 void MainCycle_ReadTempAndMoveValveEvent() {
 
   ErrorTempAirOut=0;
@@ -241,12 +246,13 @@ void MainCycle_ReadTempAndMoveValveEvent() {
     Serial.println();
 	#endif
   
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOut,fround(tempAirOut,1)); //rounded 0.0 value
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorIn,fround(tempFloorIn,1)); //rounded 0.0 value
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_FloorOut,fround(tempFloorOut,1)); //rounded 0.0 value
-	
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityIn,fround(humidityIn,0)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
 }
 
+//////////////////////CAN commands///////////////////
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
@@ -269,21 +275,17 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
-		case VPIN_TargetAirOut:
-			tempTargetAirOut = vPinValueFloat;
-			EEPROM_storeValues();
-			break;
 		//case VPIN_ManualMotorValveMinus:
 		//	if(vPinValueFloat==0) ValveStop(); else ValveStartDecrease();
 		//	break;
 		//case VPIN_ManualMotorValvePlus:
 		//	if(vPinValueFloat==0) ValveStop(); else ValveStartIncrease();
 		//	break;
-		case VPIN_SetTEHPowerPeriodMinutes:
+		case VPIN_SetTEHPowerPeriodSeconds:
 			if(vPinValueFloat<1) 
 				vPinValueFloat=1;
-			TEHPowerPeriodMinutes = vPinValueFloat;
-			TEHPeriodMillis = (long)TEHPowerPeriodMinutes*60000L;
+			TEHPowerPeriodSeconds = vPinValueFloat;
+			TEHPeriodMillis = (long)TEHPowerPeriodSeconds*1000L;
 			EEPROM_storeValues();
 			break;
 		case VPIN_TEHPID_Kp: TEHPID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
@@ -306,15 +308,16 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	return 1;
 }
 
+//////////////////////EEPROM/////////////////////////
 void EEPROM_storeValues(){
   EEPROM.put(eepromVIAddr,eepromValueIs);
   
 	EEPROM.put(VPIN_STATUS*sizeof(float),						boardSTATUS);
   EEPROM.put(VPIN_MainCycleInterval*sizeof(float),MainCycleInterval);
 
-  EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
-  EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
-  EEPROM.put(VPIN_SetTEHPowerPeriodMinutes*sizeof(float), TEHPowerPeriodMinutes);
+  //EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
+  //EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
+  EEPROM.put(VPIN_SetTEHPowerPeriodSeconds*sizeof(float), TEHPowerPeriodSeconds);
   EEPROM.put(VPIN_TEHPID_Kp*sizeof(float), 		TEHPID_Kp);
   EEPROM.put(VPIN_TEHPID_Ki*sizeof(float), 		TEHPID_Ki);
   EEPROM.put(VPIN_TEHPID_Kd*sizeof(float), 		TEHPID_Kd);
@@ -340,9 +343,9 @@ void EEPROM_restoreValues(){
     MainCycleInterval = aNewInterval;
   }
   
-  EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
-  EEPROM.get(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
-  EEPROM.get(VPIN_SetTEHPowerPeriodMinutes*sizeof(float), TEHPowerPeriodMinutes);
+  //EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
+  //EEPROM.get(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
+  EEPROM.get(VPIN_SetTEHPowerPeriodSeconds*sizeof(float), TEHPowerPeriodSeconds);
   EEPROM.get(VPIN_TEHPID_Kp*sizeof(float), 			TEHPID_Kp);
   EEPROM.get(VPIN_TEHPID_Ki*sizeof(float), 			TEHPID_Ki);
 	EEPROM.get(VPIN_TEHPID_Kd*sizeof(float), 			TEHPID_Kd);
@@ -373,9 +376,9 @@ void setup(void) {
   digitalWrite(TEH_ON_PIN,LOW); //turn off TEH
 	
   //turn off relays:
-  pinMode(ValveMinusPin,OUTPUT);
-  pinMode(ValvePlusPin,OUTPUT);
-  ValveStop(); //initial
+  pinMode(ValveOpen_PIN,OUTPUT);
+  pinMode(ValveClose_PIN,OUTPUT);
+  //ValveStop(); //initial
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT

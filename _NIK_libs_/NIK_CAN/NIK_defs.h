@@ -60,3 +60,25 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_LEDSetPWMch2  44
 #define VPIN_LEDSetPWMch3  45
 #define VPIN_LEDSetPWMch4  46
+
+#define VPIN_TEHPID_Kp 50 
+#define VPIN_TEHPID_Ki 51 
+#define VPIN_TEHPID_Kd 52 
+#define VPIN_TEHPID_P 53 //proportional
+#define VPIN_TEHPID_I 54 //integral
+#define VPIN_TEHPID_D 55 //differential
+#define VPIN_SetTEHPID_Isum_Zero 56
+#define VPIN_AirOutTargetTemp    57
+#define VPIN_AirOutTargetTempGraph    58
+#define VPIN_TEHPower                 59
+#define VPIN_SetTEHPowerPeriodSeconds 60
+
+#define VPIN_AirInTemp     61
+#define VPIN_HumidityIn    62
+#define VPIN_TEHTemp       63
+#define VPIN_AirOutTemp    64
+#define VPIN_TEHMaxTemp    65
+#define VPIN_HeaterStatus  66   //standby, opening, opening+heating, 
+                                //heating, blowing(cooling), closing, ERROR
+
+

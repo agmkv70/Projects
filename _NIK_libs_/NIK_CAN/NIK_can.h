@@ -209,6 +209,13 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat);
   //	return 1;
 //}
 
+float fround(float r, byte dec){
+	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
+	r=(long)(r+0.5);
+	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
+	return r;
+}
+
 void EEPROM_WriteInt(int p_address, int p_value){
   byte lowByte = ((p_value >> 0) & 0xFF);
   byte highByte = ((p_value >> 8) & 0xFF);
