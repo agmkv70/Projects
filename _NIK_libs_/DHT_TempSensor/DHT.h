@@ -40,12 +40,9 @@ class DHT {
   public:
    DHT(uint8_t pin, uint8_t type, uint8_t count=6);
    void begin(void);
-   float readTemperature(bool S=false, bool force=false);
-   float convertCtoF(float);
-   float convertFtoC(float);
-   float computeHeatIndex(bool isFahrenheit=true);
+   float readTemperature(bool reread, bool S=false, bool force=false);
    float computeHeatIndex(float temperature, float percentHumidity, bool isFahrenheit=true);
-   float readHumidity(bool force=false);
+   float readHumidity(bool reread, bool force=false);
    bool read(bool force=false);
 
  private:

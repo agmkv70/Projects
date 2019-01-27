@@ -9,25 +9,27 @@
 #define MAX6675_CS   PIN_A4
 #define MAX6675_SO   12
 #define MAX6675_SCK  13
+#define TempIn_DHT_PIN   PIN_A6
+#define TempOut_DS_PIN   PIN_A7
 
 #define CAN_PIN_INT 9    
 #define CAN_PIN_CS  10 
-
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
 #define LED_PIN 13
-#define ValveOpen_PIN   PIN_A2
-#define ValveClose_PIN  PIN_A3
-#define TEH_ON_PIN  3
-#define PROTECTION_READ_PIN 4 //read protection
-#define PROTECTION_ON_PIN   5 //turn on protection
+#define ValveOpen_PIN   PIN_A2 //ssr low current
+#define ValveClose_PIN  PIN_A3 //ssr low current
+#define TEH_SSR_PIN  3        //TEH ssr high current relay on pin
+#define PROTECTION_READ_PIN 4 //read heater protection (bimetal mechanical thermorelays are on or off)
+#define PROTECTION_ON_PIN   5 //turn on protection relay
 
 int targetHeaterStatus=0, //off/on
 		currentHeaterStatus=0, //0(off,standby),1(opening),2(opening+heating),
 		                      //3(heating), 4(blowing(cooling)), 5(closing), 6(ERROR)
     VALVESTATUS=0, //0 1 (off/on)
-		TEHPIDSTATUS=0;	 //0 1 (off/on)
+		TEHPIDSTATUS=0,	 //0 1 (off/on)
+		xx;
 
 
 float TEHPower=0; //TEH power on time factor 0.0 .. 10.0 float
@@ -48,65 +50,23 @@ float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
 //надо двойную защиту: по абс.макс. и по скорости прироста температуры выставить:
 //- если за заданное время прирост больше максимума - значит нет продува!
 
-float tempAirIn=0, humidityIn=0, tempTEH=0;
+float tempAirIn=0, humidityAirIn=NAN, tempTEH=0;
 float tempAirOut=20, offsetAirOut=0; //температура и калибровочное смещение(если знаю)
 float tempTargetAirOut=20;
-int   ErrorTempAirOut=0;
+int   ErrorTempAirIn=0,ErrorHumidityAirIn=0,ErrorTempTEH=0,ErrorTempAirOut=0;
 
-DHT dht_AirIn(PIN_A6, DHT22);
-OneWire  TempDS_AirOut(PIN_A7); 
+DHT dht_AirIn(TempIn_DHT_PIN, DHT22);
+OneWire  TempDS_AirOut(TempOut_DS_PIN); 
 
 #ifdef testmode
-int MainCycleInterval=10; //часто - отадка 10 сек
+int MainCycleInterval=2; //часто - отадка 10 сек
 #endif
 #ifndef testmode
-int MainCycleInterval=60; //изредка 60 сек
+int MainCycleInterval=5; //изредка 60 сек
 #endif
 int eepromVIAddr=1000,eepromValueIs=7730+0; //if this is in eeprom, then we got valid values, not junk
 
-int mainTimerId, TEHPWMTimerId, KTCtimerID;
-
-////////////////////////////////////////////////////////////////////////
-//Heater K-thermocouple:
-float readThermocoupleMAX6675() {
-  uint16_t v;
-  //pinMode(MAX6675_SO, INPUT);
-  //pinMode(MAX6675_SCK, OUTPUT);
-  
-	digitalWrite(CAN_PIN_CS, HIGH);
-  digitalWrite(MAX6675_CS, LOW);
-  delay(1);
-
-  // Read in 16 bits,
-  //  15    = 0 always
-  //  14..2 = 0.25 degree counts MSB First
-  //  2     = 1 if thermocouple is open circuit  
-  //  1..0  = uninteresting status
-  v = shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
-  v <<= 8;
-  v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
-  
-  digitalWrite(MAX6675_CS, HIGH);
-	digitalWrite(CAN_PIN_CS, LOW);
-  if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
-    return NAN;     
-  }
-	
-  // The lower three bits (0,1,2) are discarded status bits
-  v >>= 3;
-  // The remaining bits are the number of 0.25 degree (C) counts
-  return (float)v*0.25; //returning float
-}
-
-void KTCtimer_StartEvent(){
-	Serial.print("KTC_MAX6675 = ");
-	Serial.println(readThermocoupleMAX6675());
-}
-
-void DHTtimer_StartEvent(){
-	Serial.print("DHT T= ");
-	Serial.println(readThermocoupleMAX6675());
-}
+int mainTimerId, TEHPWMTimerId;
 
 ///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
@@ -144,7 +104,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	long millisFromStart = millis()-TEHPWMCycleStart;
 		
 	if( millisFromStart >= TEHPeriodMillis ){ //time to START:
-		if( !ErrorTempAirOut && PIDSTATUS>0 ){
+		if( !ErrorTempAirOut && TEHPIDSTATUS>0 ){
 			TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
 		}
 	  TEHPWMCycleStart = millis();
@@ -169,9 +129,9 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	}
 
   if(TEHPowerCurrentStateOnOff==1)
-		digitalWrite(TEH_ON_PIN,HIGH);
+		digitalWrite(TEH_SSR_PIN,HIGH);
 	else
-		digitalWrite(TEH_ON_PIN,LOW);
+		digitalWrite(TEH_SSR_PIN,LOW);
 }
 
 /////////////////////////////////general program////////////////////////
@@ -215,8 +175,39 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
   return 1; //OK
 }
 
-void MainCycle_ReadTempAndMoveValveEvent(); //declaration
+////////////////////////////////////////////////////////////////////////
+//Heater K-thermocouple:
+float readThermocoupleMAX6675() {
+  uint16_t v;
+  //pinMode(MAX6675_SO, INPUT);
+  //pinMode(MAX6675_SCK, OUTPUT);
+  
+	digitalWrite(CAN_PIN_CS, HIGH);
+  digitalWrite(MAX6675_CS, LOW);
+  delay(1);
 
+  // Read in 16 bits,
+  //  15    = 0 always
+  //  14..2 = 0.25 degree counts MSB First
+  //  2     = 1 if thermocouple is open circuit  
+  //  1..0  = uninteresting status
+  v = shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  v <<= 8;
+  v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  
+  digitalWrite(MAX6675_CS, HIGH);
+	digitalWrite(CAN_PIN_CS, LOW);
+  if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
+    return NAN;     
+  }
+	
+  // The lower three bits (0,1,2) are discarded status bits
+  v >>= 3;
+  // The remaining bits are the number of 0.25 degree (C) counts
+  return (float)v*0.25; //returning float
+}
+
+void MainCycle_ReadTempEvent(); //declaration
 void MainCycle_StartEvent() {
 
 	switch(boardSTATUS){
@@ -226,28 +217,49 @@ void MainCycle_StartEvent() {
 
 	TempDS_AllStartConvertion();
 	#ifdef testmode
-	Serial.println("Start coversion... ");
+	Serial.println("Run DS coversion... ");
 	#endif
-
-	timer.setTimeout(1000L, MainCycle_ReadTempAndMoveValveEvent); //start once after timeout 1s
+	
+	timer.setTimeout(1000L, MainCycle_ReadTempEvent); //start once after timeout 1s
 } //wait 1 sec and run next function:
-void MainCycle_ReadTempAndMoveValveEvent() {
+void MainCycle_ReadTempEvent() {
 
-  ErrorTempAirOut=0;
+  ErrorTempAirIn=0;
+	ErrorHumidityAirIn=0;
+	ErrorTempTEH=0;
+	ErrorTempAirOut=0;
 	
-	//ErrorMeasTempTEH=0;
-	
+	if( dht_AirIn.read(false) ){ //not faster than 2 sec
+		tempAirIn = dht_AirIn.readTemperature(false); //no rereading
+		if(tempAirIn==NAN){
+			ErrorTempAirIn++;
+		}
+		humidityAirIn = dht_AirIn.readHumidity(false);//no rereading
+		if(humidityAirIn==NAN){
+			ErrorHumidityAirIn++;
+		}
+	}else{
+		ErrorTempAirIn++;
+		ErrorHumidityAirIn++;
+	}
+
 	if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
-	 //ErrorMeasTempTEH++; 
 	 ErrorTempAirOut++;
 	}
-  
+
+	tempTEH = readThermocoupleMAX6675();
+	if(tempTEH==NAN){
+		ErrorTempTEH++;
+	}
+
 	#ifdef testmode
-    Serial.println();
-	#endif
+	//Serial.print("TEH = KTC_MAX6675 = ");
+	//Serial.print(fround(tempTEH,1));
+	Serial.println();
+  #endif
   
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityIn,fround(humidityIn,0)); //rounded 0.0 value
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityAirIn,fround(humidityAirIn,0)); //rounded 0.0 value
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
 }
@@ -260,7 +272,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			EEPROM_storeValues();
 			break;
 		case VPIN_PIDSTATUS:
-			PIDSTATUS = (int)vPinValueFloat;
+			TEHPIDSTATUS = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
 		case VPIN_VALVESTATUS:
@@ -324,7 +336,7 @@ void EEPROM_storeValues(){
   EEPROM.put(VPIN_TEHPower*sizeof(float), 			TEHPower);
   EEPROM.put(VPIN_AirOutTargetTemp*sizeof(float), AirOutTargetTemp);
 
-	EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			PIDSTATUS);
+	EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			TEHPIDSTATUS);
   EEPROM.put(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
   
 }
@@ -352,7 +364,7 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_TEHPower*sizeof(float), 			TEHPower);
   EEPROM.get(VPIN_AirOutTargetTemp*sizeof(float), 	AirOutTargetTemp);
 
-	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
+	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				TEHPIDSTATUS);
 	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
@@ -364,16 +376,18 @@ void setup(void) {
 	Serial.begin(115200);
 	#endif
 
+	dht_AirIn.begin(); //there is pin pullup and remembering millis
+
   pinMode(MAX6675_CS,OUTPUT);
 	digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
-  KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
-	return;
+  //KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
+	//return;
 
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
 
-	pinMode(TEH_ON_PIN,OUTPUT);
-  digitalWrite(TEH_ON_PIN,LOW); //turn off TEH
+	pinMode(TEH_SSR_PIN,OUTPUT);
+  digitalWrite(TEH_SSR_PIN,LOW); //turn off TEH
 	
   //turn off relays:
   pinMode(ValveOpen_PIN,OUTPUT);

@@ -74,7 +74,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_SetTEHPowerPeriodSeconds 60
 
 #define VPIN_AirInTemp     61
-#define VPIN_HumidityIn    62
+#define VPIN_HumidityAirIn 62
 #define VPIN_TEHTemp       63
 #define VPIN_AirOutTemp    64
 #define VPIN_TEHMaxTemp    65

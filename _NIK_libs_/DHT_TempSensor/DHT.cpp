@@ -33,50 +33,43 @@ void DHT::begin(void) {
 }
 
 //boolean S == Scale.  True == Fahrenheit; False == Celcius
-float DHT::readTemperature(bool S, bool force) {
+float DHT::readTemperature(bool reread,bool S, bool force) {
   float f = NAN;
 
-  if (read(force)) {
-    switch (_type) {
-    case DHT11:
-    case DHT12:
-      f = data[2];
-      f += (data[3] & 0x0f) * 0.1;
-      if (data[2] & 0x80) {
-        f *= -1;
-      }
-      if(S) {
-        f = convertCtoF(f);
-      }
-      break;
-    case DHT22:
-    case DHT21:
-      f = ((word)(data[2] & 0x7F)) << 8 | data[3];
-      f *= 0.1;
-      if (data[2] & 0x80) {
-        f *= -1;
-      }
-      if(S) {
-        f = convertCtoF(f);
-      }
-      break;
+  if(reread){
+    if (!read(force)) {
+      return f;
     }
+  }
+  switch (_type) {
+  case DHT11:
+  case DHT12:
+    f = data[2];
+    f += (data[3] & 0x0f) * 0.1;
+    if (data[2] & 0x80) {
+      f *= -1;
+    }
+    break;
+  case DHT22:
+  case DHT21:
+    f = ((word)(data[2] & 0x7F)) << 8 | data[3];
+    f *= 0.1;
+    if (data[2] & 0x80) {
+      f *= -1;
+    }
+    break;
   }
   return f;
 }
 
-float DHT::convertCtoF(float c) {
-  return c * 1.8 + 32;
-}
-
-float DHT::convertFtoC(float f) {
-  return (f - 32) * 0.55555;
-}
-
-float DHT::readHumidity(bool force) {
+float DHT::readHumidity(bool reread,bool force) {
   float f = NAN;
-  if (read(force)) {
-    switch (_type) {
+  if(reread){
+    if (!read(force)) {
+      return f;
+    }
+  }
+  switch (_type) {
     case DHT11:
     case DHT12:
       f = data[0] + data[1] * 0.1;
@@ -86,16 +79,8 @@ float DHT::readHumidity(bool force) {
       f = ((word)data[0]) << 8 | data[1];
       f *= 0.1;
       break;
-    }
   }
   return f;
-}
-
-//boolean isFahrenheit: True == Fahrenheit; False == Celcius
-float DHT::computeHeatIndex(bool isFahrenheit) {
-  float hi = computeHeatIndex(readTemperature(isFahrenheit), readHumidity(),
-    isFahrenheit);
-  return isFahrenheit ? hi : convertFtoC(hi);
 }
 
 //boolean isFahrenheit: True == Fahrenheit; False == Celcius
@@ -104,9 +89,6 @@ float DHT::computeHeatIndex(float temperature, float percentHumidity,
   // Using both Rothfusz and Steadman's equations
   // http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
   float hi;
-
-  if (!isFahrenheit)
-    temperature = convertCtoF(temperature);
 
   hi = 0.5 * (temperature + 61.0 + ((temperature - 68.0) * 1.2) + (percentHumidity * 0.094));
 
@@ -128,7 +110,7 @@ float DHT::computeHeatIndex(float temperature, float percentHumidity,
       hi += ((percentHumidity - 85.0) * 0.1) * ((87.0 - temperature) * 0.2);
   }
 
-  return isFahrenheit ? hi : convertFtoC(hi);
+  return hi;
 }
 
 bool DHT::read(bool force) {
