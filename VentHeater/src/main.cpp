@@ -1,7 +1,7 @@
-///VentTEH///
+// ///VentTEH///
 
 #include <OneWire.h>
-#include <DHT.h>
+#include <SimpleDHT.h>
 
 #define testmode
 
@@ -9,7 +9,7 @@
 #define MAX6675_CS   PIN_A4
 #define MAX6675_SO   12
 #define MAX6675_SCK  13
-#define TempIn_DHT_PIN   PIN_A6
+#define TempIn_DHT_PIN   6
 #define TempOut_DS_PIN   PIN_A7
 
 #define CAN_PIN_INT 9    
@@ -55,16 +55,16 @@ float tempAirOut=20, offsetAirOut=0; //температура и калибро�
 float tempTargetAirOut=20;
 int   ErrorTempAirIn=0,ErrorHumidityAirIn=0,ErrorTempTEH=0,ErrorTempAirOut=0;
 
-DHT dht_AirIn(TempIn_DHT_PIN, DHT22);
+SimpleDHT22 dht_AirIn(TempIn_DHT_PIN);
 OneWire  TempDS_AirOut(TempOut_DS_PIN); 
 
 #ifdef testmode
-int MainCycleInterval=2; //часто - отадка 10 сек
+int MainCycleInterval=5; //часто - отадка 10 сек
 #endif
 #ifndef testmode
 int MainCycleInterval=5; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7730+0; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+1; //if this is in eeprom, then we got valid values, not junk
 
 int mainTimerId, TEHPWMTimerId;
 
@@ -195,9 +195,10 @@ float readThermocoupleMAX6675() {
   v <<= 8;
   v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
   
+  digitalWrite(CAN_PIN_CS, LOW);
   digitalWrite(MAX6675_CS, HIGH);
-	digitalWrite(CAN_PIN_CS, LOW);
-  if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
+	delay(1);
+	if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
     return NAN;     
   }
 	
@@ -229,23 +230,31 @@ void MainCycle_ReadTempEvent() {
 	ErrorTempTEH=0;
 	ErrorTempAirOut=0;
 	
-	if( dht_AirIn.read(false) ){ //not faster than 2 sec
-		tempAirIn = dht_AirIn.readTemperature(false); //no rereading
-		if(tempAirIn==NAN){
-			ErrorTempAirIn++;
-		}
-		humidityAirIn = dht_AirIn.readHumidity(false);//no rereading
-		if(humidityAirIn==NAN){
-			ErrorHumidityAirIn++;
-		}
-	}else{
+	float temperature = 0;
+  float humidity = 0;
+  int err = SimpleDHTErrSuccess;
+  
+	if ((err = dht_AirIn.read2(&temperature, &humidity, NULL)) != SimpleDHTErrSuccess){ //not faster than once in 2 sec
 		ErrorTempAirIn++;
 		ErrorHumidityAirIn++;
+	}else{
+		tempAirIn = temperature;
+		humidityAirIn = humidity;
 	}
+	#ifdef testmode
+	Serial.print("DHT22: Error= ");
+	Serial.print(ErrorTempAirIn);Serial.print(ErrorHumidityAirIn);
+	Serial.print(" T= ");
+	Serial.print(fround(tempAirIn,1));
+	Serial.print(" Hum= ");
+	Serial.print(fround(humidityAirIn,1));
+	Serial.println();
+  #endif
+  
 
-	if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
-	 ErrorTempAirOut++;
-	}
+	//if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
+	// ErrorTempAirOut++;
+	//}
 
 	tempTEH = readThermocoupleMAX6675();
 	if(tempTEH==NAN){
@@ -253,15 +262,16 @@ void MainCycle_ReadTempEvent() {
 	}
 
 	#ifdef testmode
-	//Serial.print("TEH = KTC_MAX6675 = ");
-	//Serial.print(fround(tempTEH,1));
+	Serial.println();
+	Serial.print("TEH = KTC_MAX6675 = ");
+	Serial.print(fround(tempTEH,1));
 	Serial.println();
   #endif
   
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityAirIn,fround(humidityAirIn,0)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
-	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityAirIn,fround(humidityAirIn,0)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
 }
 
 //////////////////////CAN commands///////////////////
@@ -368,7 +378,7 @@ void EEPROM_restoreValues(){
 	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
-void setup(void) {
+void setup00(void) {
 	boardSTATUS = Status_Manual; //init
 	EEPROM_restoreValues();
 
@@ -376,12 +386,13 @@ void setup(void) {
 	Serial.begin(115200);
 	#endif
 
-	dht_AirIn.begin(); //there is pin pullup and remembering millis
-
-  pinMode(MAX6675_CS,OUTPUT);
+	pinMode(MAX6675_CS,OUTPUT);
 	digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
   //KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
-	//return;
+
+	mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+	
+	return;
 
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
@@ -434,7 +445,7 @@ void setup(void) {
 }
 
 ////////////////////////////////////////////////LOOP////////////////////////////
-void loop(void) {
+void loop00(void) {
   timer.run();
   checkReadCAN();
 }
