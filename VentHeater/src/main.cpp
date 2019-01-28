@@ -235,23 +235,23 @@ void MainCycle_ReadTempEvent() {
   int err = SimpleDHTErrSuccess;
   
 	if ((err = dht_AirIn.read2(&temperature, &humidity, NULL)) != SimpleDHTErrSuccess){ //not faster than once in 2 sec
-		ErrorTempAirIn++;
+		#ifdef testmode
+		Serial.print("Read DHT22 failed, err="); Serial.println(err);
+		#endif
+  	ErrorTempAirIn++;
 		ErrorHumidityAirIn++;
 	}else{
 		tempAirIn = temperature;
 		humidityAirIn = humidity;
 	}
 	#ifdef testmode
-	Serial.print("DHT22: Error= ");
-	Serial.print(ErrorTempAirIn);Serial.print(ErrorHumidityAirIn);
-	Serial.print(" T= ");
+	Serial.print(" DHT22: T= ");
 	Serial.print(fround(tempAirIn,1));
 	Serial.print(" Hum= ");
 	Serial.print(fround(humidityAirIn,1));
 	Serial.println();
   #endif
   
-
 	//if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
 	// ErrorTempAirOut++;
 	//}
@@ -263,7 +263,7 @@ void MainCycle_ReadTempEvent() {
 
 	#ifdef testmode
 	Serial.println();
-	Serial.print("TEH = KTC_MAX6675 = ");
+	Serial.print("TEH: KTC_MAX6675 = ");
 	Serial.print(fround(tempTEH,1));
 	Serial.println();
   #endif
@@ -378,7 +378,7 @@ void EEPROM_restoreValues(){
 	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
-void setup00(void) {
+void setup(void) {
 	boardSTATUS = Status_Manual; //init
 	EEPROM_restoreValues();
 
@@ -445,7 +445,7 @@ void setup00(void) {
 }
 
 ////////////////////////////////////////////////LOOP////////////////////////////
-void loop00(void) {
+void loop(void) {
   timer.run();
   checkReadCAN();
 }
