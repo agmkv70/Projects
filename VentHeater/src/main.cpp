@@ -10,7 +10,7 @@
 #define MAX6675_SO   12
 #define MAX6675_SCK  13
 #define TempIn_DHT_PIN   6
-#define TempOut_DS_PIN   PIN_A7
+#define TempOut_DS_PIN   7
 
 #define CAN_PIN_INT 9    
 #define CAN_PIN_CS  10 
@@ -168,7 +168,8 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
   *temp = (float)( (data[1] << 8) + data[0] )*0.0625F;
 
 	#ifdef testmode
-  Serial.print(" ");
+  Serial.print(" ");Serial.print(dname);
+	Serial.print("=");
   Serial.print(*temp);
 	#endif
 
@@ -252,9 +253,17 @@ void MainCycle_ReadTempEvent() {
 	Serial.println();
   #endif
   
-	//if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
-	// ErrorTempAirOut++;
-	//}
+	if( !TempDS_GetTemp(&TempDS_AirOut,"AIROUT",&tempAirOut) ){
+	 ErrorTempAirOut++;
+	 #ifdef testmode
+		Serial.print("Read DS failed!"); Serial.println();
+	 #endif
+	}
+	// #ifdef testmode
+	// Serial.print(" DS: T= ");
+	// Serial.print(fround(tempAirOut,1));
+	// Serial.println();
+  // #endif
 
 	tempTEH = readThermocoupleMAX6675();
 	if(tempTEH==NAN){
