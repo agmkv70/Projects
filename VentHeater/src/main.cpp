@@ -179,34 +179,39 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
 ////////////////////////////////////////////////////////////////////////
 //Heater K-thermocouple:
 float readThermocoupleMAX6675() {
-  uint16_t v;
+  uint16_t data=0;
   //pinMode(MAX6675_SO, INPUT);
   //pinMode(MAX6675_SCK, OUTPUT);
   
 	digitalWrite(CAN_PIN_CS, HIGH);
+	SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0));
   digitalWrite(MAX6675_CS, LOW);
   delay(1);
 
-  // Read in 16 bits,
+  /*// Read in 16 bits,
   //  15    = 0 always
   //  14..2 = 0.25 degree counts MSB First
   //  2     = 1 if thermocouple is open circuit  
   //  1..0  = uninteresting status
-  v = shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
-  v <<= 8;
-  v |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  data = shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);
+  data <<= 8;
+  data |= shiftIn(MAX6675_SO, MAX6675_SCK, MSBFIRST);*/
+	
+	// read 16 bits, MSB first
+  data |= SPI.transfer(0) << 8;
+  data |= SPI.transfer(0) << 0;
   
-  digitalWrite(CAN_PIN_CS, LOW);
   digitalWrite(MAX6675_CS, HIGH);
-	delay(1);
-	if(v & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
+	SPI.endTransaction();
+  digitalWrite(CAN_PIN_CS, LOW);
+  delay(1);
+	if(data & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
     return NAN;     
   }
-	
-  // The lower three bits (0,1,2) are discarded status bits
-  v >>= 3;
+	// The lower three bits (0,1,2) are discarded status bits
+  data >>= 3;
   // The remaining bits are the number of 0.25 degree (C) counts
-  return (float)v*0.25; //returning float
+  return (float)data*0.25; //returning float
 }
 
 void MainCycle_ReadTempEvent(); //declaration
@@ -244,6 +249,9 @@ void MainCycle_ReadTempEvent() {
 	}else{
 		tempAirIn = temperature;
 		humidityAirIn = humidity;
+
+		addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
+	  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityAirIn,fround(humidityAirIn,0)); //rounded 0.0 value
 	}
 	#ifdef testmode
 	Serial.print(" DHT22: T= ");
@@ -258,6 +266,8 @@ void MainCycle_ReadTempEvent() {
 	 #ifdef testmode
 		Serial.print("Read DS failed!"); Serial.println();
 	 #endif
+	}else{
+		addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
 	}
 	// #ifdef testmode
 	// Serial.print(" DS: T= ");
@@ -268,6 +278,8 @@ void MainCycle_ReadTempEvent() {
 	tempTEH = readThermocoupleMAX6675();
 	if(tempTEH==NAN){
 		ErrorTempTEH++;
+	}else{
+		addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
 	}
 
 	#ifdef testmode
@@ -276,11 +288,6 @@ void MainCycle_ReadTempEvent() {
 	Serial.print(fround(tempTEH,1));
 	Serial.println();
   #endif
-  
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirInTemp,fround(tempAirIn,0)); //rounded 0.0 value
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HumidityAirIn,fround(humidityAirIn,0)); //rounded 0.0 value
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
-	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
 }
 
 //////////////////////CAN commands///////////////////
@@ -399,9 +406,8 @@ void setup(void) {
 	digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
   //KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
 
-	mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
-	
-	return;
+	//mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+	//return;
 
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
