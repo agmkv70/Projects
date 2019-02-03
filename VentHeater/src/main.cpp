@@ -6,28 +6,31 @@
 #define testmode
 
 //K-thermocouple pins:
-#define MAX6675_CS   PIN_A4
-#define MAX6675_SO   12
-#define MAX6675_SCK  13
-#define TempIn_DHT_PIN   6
-#define TempOut_DS_PIN   7
+#define MAX6675_CS PIN_A4
+#define MAX6675_SO     12
+#define MAX6675_SCK    13
+#define TempIn_DHT_PIN  6
+#define TempOut_DS_PIN  7
 
-#define CAN_PIN_INT 9    
-#define CAN_PIN_CS  10 
+#define CAN_PIN_INT   9    
+#define CAN_PIN_CS   10 
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
 #define LED_PIN 13
-#define ValveOpen_PIN   PIN_A2 //ssr low current
-#define ValveClose_PIN  PIN_A3 //ssr low current
-#define TEH_SSR_PIN  3        //TEH ssr high current relay on pin
+#define ValveOpen_PIN  PIN_A2 //ssr low current
+#define ValveClose_PIN PIN_A3 //ssr low current
+#define TEH_SSR_PIN         3 //TEH ssr high current relay on pin
 #define PROTECTION_READ_PIN 4 //read heater protection (bimetal mechanical thermorelays are on or off)
 #define PROTECTION_ON_PIN   5 //turn on protection relay
 
-int targetHeaterStatus=0, //off/on
-		currentHeaterStatus=0, //0(off,standby),1(opening),2(opening+heating),
-		                      //3(heating), 4(blowing(cooling)), 5(closing), 6(ERROR)
-    VALVESTATUS=0, //0 1 (off/on)
+int targetHeaterStatus =0, //off/on/onHeat
+		currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
+		                      //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
+		errorThermocouple=0,     //TEH overheat by thermocouple, thermocouple not giving data
+    errorRelayProtect=0,     //TEH overheat by relay protection
+    VALVESTATUS=0,   //0 1 (closed/opened), 2(opening), 3(closing)
+		valveStopTimerId=0, ValveMovementTimeMil=10000, valveCloseTimerId=0,
 		TEHPIDSTATUS=0,	 //0 1 (off/on)
 		xx;
 
@@ -59,14 +62,14 @@ SimpleDHT22 dht_AirIn(TempIn_DHT_PIN);
 OneWire  TempDS_AirOut(TempOut_DS_PIN); 
 
 #ifdef testmode
-int MainCycleInterval=5; //часто - отадка 10 сек
+int ReadTempCycleInterval=5; //часто - отадка 10 сек
 #endif
 #ifndef testmode
-int MainCycleInterval=5; //изредка 60 сек
+int ReadTempCycleInterval=5; //изредка 60 сек
 #endif
 int eepromVIAddr=1000,eepromValueIs=7730+1; //if this is in eeprom, then we got valid values, not junk
 
-int mainTimerId, TEHPWMTimerId;
+int readTempTimerId, TEHPWMTimerId, KTCtimerId, commandTimerId;
 
 ///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
@@ -101,6 +104,11 @@ void TEHPIDEvaluation(){
 }
 
 void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
+	if(TEHPIDSTATUS==0){
+		digitalWrite(TEH_SSR_PIN,LOW);
+		return;
+	}
+
 	long millisFromStart = millis()-TEHPWMCycleStart;
 		
 	if( millisFromStart >= TEHPeriodMillis ){ //time to START:
@@ -214,8 +222,8 @@ float readThermocoupleMAX6675() {
   return (float)data*0.25; //returning float
 }
 
-void MainCycle_ReadTempEvent(); //declaration
-void MainCycle_StartEvent() {
+void ReadTemperatureCycle_ReadTempEvent(); //declaration
+void ReadTemperatureCycle_StartEvent() {
 
 	switch(boardSTATUS){
 		case Status_Standby:
@@ -227,13 +235,12 @@ void MainCycle_StartEvent() {
 	Serial.println("Run DS coversion... ");
 	#endif
 	
-	timer.setTimeout(1000L, MainCycle_ReadTempEvent); //start once after timeout 1s
+	timer.setTimeout(1000L, ReadTemperatureCycle_ReadTempEvent); //start once after timeout 1s
 } //wait 1 sec and run next function:
-void MainCycle_ReadTempEvent() {
+void ReadTemperatureCycle_ReadTempEvent() {
 
   ErrorTempAirIn=0;
 	ErrorHumidityAirIn=0;
-	ErrorTempTEH=0;
 	ErrorTempAirOut=0;
 	
 	float temperature = 0;
@@ -274,13 +281,23 @@ void MainCycle_ReadTempEvent() {
 	// Serial.print(fround(tempAirOut,1));
 	// Serial.println();
   // #endif
+  
+	if(ErrorTempTEH==0){
+		addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
+	}
+}
+
+void KTCReadThermocouple_Event(){
+  ErrorTempTEH=0;
 
 	tempTEH = readThermocoupleMAX6675();
 	if(tempTEH==NAN){
 		ErrorTempTEH++;
-	}else{
-		addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
 	}
+	//send temp with other temps, but not here
+	//else{
+		//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
+	//}
 
 	#ifdef testmode
 	Serial.println();
@@ -288,6 +305,91 @@ void MainCycle_ReadTempEvent() {
 	Serial.print(fround(tempTEH,1));
 	Serial.println();
   #endif
+}
+
+void ValveStop(){
+	digitalWrite(ValveOpen_PIN,LOW);
+  digitalWrite(ValveClose_PIN,LOW);
+	valveStopTimerId = 0;
+	if(VALVESTATUS==2){//opening
+		VALVESTATUS=1;//opened
+	}else if(VALVESTATUS==3){//closing
+		VALVESTATUS=0;//closed
+	}
+}
+void ValveClose(){
+	digitalWrite(ValveOpen_PIN,LOW);
+	delay(50);
+	digitalWrite(ValveClose_PIN,HIGH);
+	if(valveStopTimerId !=0 ){ //clear old timer and start a new one
+		timer.deleteTimer(valveStopTimerId);
+	}
+	if(valveCloseTimerId !=0 ){
+		timer.deleteTimer(valveCloseTimerId);
+		valveCloseTimerId = 0;
+	}
+	VALVESTATUS=3;//closing
+	valveStopTimerId = timer.setTimeout(ValveMovementTimeMil, ValveStop); //start once after timeout
+}
+void ValveOpen(){
+	digitalWrite(ValveClose_PIN,LOW);
+	delay(50);
+	digitalWrite(ValveOpen_PIN,HIGH);
+	if(valveStopTimerId !=0 ){ //clear old timer and start a new one
+		timer.deleteTimer(valveStopTimerId);
+	}
+	if(valveCloseTimerId !=0 ){
+		timer.deleteTimer(valveCloseTimerId);
+		valveCloseTimerId = 0;
+	}
+	VALVESTATUS=2;//opening
+	valveStopTimerId = timer.setTimeout(ValveMovementTimeMil, ValveStop); //start once after timeout
+}
+
+//////////////////////COMMANDer////////////////////// STATUS changes:
+void CommandCycle_Event(){
+	switch(targetHeaterStatus){
+
+		case 0: //targetHeaterStatus==off
+			TEHPIDSTATUS=0; //turn off TEH
+			if(VALVESTATUS==0 || VALVESTATUS==3){ //0 closed,3 closing
+				;//nothing
+			}else{
+				if(ErrorTempTEH!=0){
+					//close after 20 sec.:
+					VALVESTATUS=3; //closing
+					valveCloseTimerId = timer.setTimeout(20*1000L, ValveClose);
+				}else{//read KTC and decide weather TEH is cooled enough:
+					if(tempTEH!=NAN && tempTEH>45){
+						//if(valveCloseTimerId !=0 ){//no error now, clear scheduled closing:
+						//	timer.deleteTimer(valveCloseTimerId);
+						//}
+						;//its too hot - just wait
+					}else{ //now its cold:
+						ValveClose();
+					}
+				}
+			}
+		break;
+
+		case 1: //targetHeaterStatus==on (without heater)
+			TEHPIDSTATUS=0; //turn on TEH
+			if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
+				;//nothing
+			}else{
+				ValveOpen();
+			}
+		break;
+
+		case 2: //targetHeaterStatus==onHeat
+			TEHPIDSTATUS=1; //turn on TEH
+			if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
+				;//nothing
+			}else{
+				ValveOpen();
+			}
+		break;
+	}
 }
 
 //////////////////////CAN commands///////////////////
@@ -306,11 +408,11 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			EEPROM_storeValues();
 			break;
 		case VPIN_SetMainCycleInterval:
-			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
+			if(ReadTempCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
 				break;
-			MainCycleInterval = (int)vPinValueFloat;
-			timer.deleteTimer(mainTimerId);
-			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+			ReadTempCycleInterval = (int)vPinValueFloat;
+			timer.deleteTimer(readTempTimerId);
+			readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
 		//case VPIN_ManualMotorValveMinus:
@@ -351,7 +453,7 @@ void EEPROM_storeValues(){
   EEPROM.put(eepromVIAddr,eepromValueIs);
   
 	EEPROM.put(VPIN_STATUS*sizeof(float),						boardSTATUS);
-  EEPROM.put(VPIN_MainCycleInterval*sizeof(float),MainCycleInterval);
+  EEPROM.put(VPIN_MainCycleInterval*sizeof(float),ReadTempCycleInterval);
 
   //EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
   //EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
@@ -378,7 +480,7 @@ void EEPROM_restoreValues(){
   int aNewInterval;
 	EEPROM.get(VPIN_MainCycleInterval*sizeof(float),aNewInterval);
   if(aNewInterval > 0){
-    MainCycleInterval = aNewInterval;
+    ReadTempCycleInterval = aNewInterval;
   }
   
   //EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
@@ -404,11 +506,14 @@ void setup(void) {
 
 	pinMode(MAX6675_CS,OUTPUT);
 	digitalWrite(MAX6675_CS, HIGH); //turn off thermocouple CS
-  //KTCtimerID = timer.setInterval(1000L * 2, KTCtimer_StartEvent); //start regularly 
-
-	//mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+  KTCtimerId = timer.setInterval(1000L*2, KTCReadThermocouple_Event); //2sec
+	//readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
 	//return;
 
+	pinMode(PROTECTION_ON_PIN,OUTPUT);
+  digitalWrite(PROTECTION_ON_PIN,LOW); //turn off protection relay
+	pinMode(PROTECTION_READ_PIN,INPUT);
+  
   pinMode(LED_PIN,OUTPUT);
   digitalWrite(LED_PIN,LOW); //turn off LED
 
@@ -418,7 +523,7 @@ void setup(void) {
   //turn off relays:
   pinMode(ValveOpen_PIN,OUTPUT);
   pinMode(ValveClose_PIN,OUTPUT);
-  //ValveStop(); //initial
+  ValveClose(); //initial
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
@@ -453,9 +558,11 @@ void setup(void) {
 	#endif
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
-  mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+	commandTimerId = timer.setInterval(500L, CommandCycle_Event); 
 	delay(100); //for two timers not at once
-	TEHPWMTimerId = timer.setInterval(1000L, TEHPWMTimerEvent); //1 sec pwm discretion
+  readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
+	delay(150); //for two timers not at once
+	TEHPWMTimerId = timer.setInterval(100, TEHPWMTimerEvent); //1 sec pwm discretion
 	TEHPWMCycleStart = millis();
 }
 
