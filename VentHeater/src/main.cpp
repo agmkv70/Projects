@@ -28,10 +28,10 @@ int targetHeaterStatus =0, //off/on/onHeat
 		currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
 		                      //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
 		errorThermocouple=0,     //TEH overheat by thermocouple, thermocouple not giving data
-    errorRelayProtect=0,     //TEH overheat by relay protection
+    errorTEHOverheatError=0,curErrorRelayProtect=0,     //TEH overheat by relay protection
     VALVESTATUS=0,   //0 1 (closed/opened), 2(opening), 3(closing)
 		valveStopTimerId=0, ValveMovementTimeMil=10000, valveCloseTimerId=0,
-		TEHPIDSTATUS=0,	 //0 1 (off/on)
+		TEHPIDSTATUS=0,	 //0 1 2 (off/on/error)
 		xx;
 
 
@@ -348,6 +348,22 @@ void ValveOpen(){
 
 //////////////////////COMMANDer////////////////////// STATUS changes:
 void CommandCycle_Event(){
+
+	if(digitalRead(PROTECTION_READ_PIN)==HIGH){
+		if(TEHPIDSTATUS==0){ //relay error2 (can't turn it off)
+			curErrorRelayProtect=2;
+			errorTEHOverheatError = curErrorRelayProtect; //wait manual command to restart
+		}
+	}else{//PROTECTION_READ_PIN==LOW
+		if(TEHPIDSTATUS==1){ //protection error1 (overheat!)
+			curErrorRelayProtect=1;
+			errorTEHOverheatError = curErrorRelayProtect; //wait manual command to restart
+		}
+	}
+	if(curErrorRelayProtect!=0 || errorTEHOverheatError!=0){
+		TEHPIDSTATUS=0;
+	}
+
 	switch(targetHeaterStatus){
 
 		case 0: //targetHeaterStatus==off
@@ -373,7 +389,7 @@ void CommandCycle_Event(){
 		break;
 
 		case 1: //targetHeaterStatus==on (without heater)
-			TEHPIDSTATUS=0; //turn on TEH
+			TEHPIDSTATUS=0; //turn off TEH
 			if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
 				;//nothing
 			}else{
@@ -382,7 +398,9 @@ void CommandCycle_Event(){
 		break;
 
 		case 2: //targetHeaterStatus==onHeat
-			TEHPIDSTATUS=1; //turn on TEH
+			if(errorTEHOverheatError==0 && curErrorRelayProtect==0){
+				TEHPIDSTATUS=1; //turn on TEH
+			}
 			if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
 				;//nothing
 			}else{
@@ -390,13 +408,19 @@ void CommandCycle_Event(){
 			}
 		break;
 	}
+
+	if(TEHPIDSTATUS==0){
+		digitalWrite(PROTECTION_ON_PIN, LOW);
+	}else{
+		digitalWrite(PROTECTION_ON_PIN, HIGH);
+	}//for nest run time relay will switch
 }
 
 //////////////////////CAN commands///////////////////
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
-			boardSTATUS = (int)vPinValueFloat;
+			targetHeaterStatus = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
 		case VPIN_PIDSTATUS:
@@ -407,6 +431,10 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			VALVESTATUS = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
+		case VPIN_ClearTEHOverheatError:
+			errorTEHOverheatError = 0;
+			EEPROM_storeValues();
+			break;
 		case VPIN_SetMainCycleInterval:
 			if(ReadTempCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
 				break;
@@ -415,12 +443,6 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
-		//case VPIN_ManualMotorValveMinus:
-		//	if(vPinValueFloat==0) ValveStop(); else ValveStartDecrease();
-		//	break;
-		//case VPIN_ManualMotorValvePlus:
-		//	if(vPinValueFloat==0) ValveStop(); else ValveStartIncrease();
-		//	break;
 		case VPIN_SetTEHPowerPeriodSeconds:
 			if(vPinValueFloat<1) 
 				vPinValueFloat=1;

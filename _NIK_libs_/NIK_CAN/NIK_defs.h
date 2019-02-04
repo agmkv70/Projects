@@ -80,5 +80,6 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_TEHMaxTemp    65
 #define VPIN_HeaterStatus  66   //standby, opening, opening+heating, 
                                 //heating, blowing(cooling), closing, ERROR
-
+#define VPIN_ClearTEHOverheatError 67
+#define VPIN_ 1
 
