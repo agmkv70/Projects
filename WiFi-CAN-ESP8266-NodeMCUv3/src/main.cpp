@@ -15,6 +15,13 @@
 #include <NIK_can.h>
 
 ////////////////////////////////////////////////////////////////
+#include <PubSubClient.h>
+#define BUFFER_SIZE 200
+
+WiFiClient espClient;
+PubSubClient MQTTClient(espClient);
+long lastReconnectMQTTmillis=0;
+////////////////////////////////////////////////////////////////
 
 #ifdef testmode
 void testSendQueue(){
@@ -31,7 +38,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   return 0;
 }
 
-// Receive data from App to CANbus
+// Receive data from App and send to CAN bus and MQTT broker:
 // This is called for all virtual pins, that don't have BLYNK_WRITE handler
 BLYNK_WRITE_DEFAULT() {
   #ifdef testmode
@@ -48,6 +55,10 @@ BLYNK_WRITE_DEFAULT() {
     Serial.print("* ");
     Serial.println(i.asString());
     #endif
+
+    String topicPinName = "/home1/VPIN_";
+    topicPinName += (int)request.pin;
+    MQTTClient.publish(topicPinName.c_str(), i.asString());		////////// send to MQTT broker
   }
 }
 
@@ -89,9 +100,66 @@ BLYNK_CONNECTED() {
   }
 }
 
+void MQTTReconnect() {
+  long curMillis = millis();
+  if( curMillis - lastReconnectMQTTmillis < 5000 ){ 
+    return; //try reconnect not too often - once in 5 sec.
+  }
+  lastReconnectMQTTmillis = curMillis;
+
+  Serial.print("Attempting MQTT connection... ");
+  
+  String clientId = "ESP_CAN_bridge";
+  //clientId += String(random(0xffff), HEX);
+  
+  // Attempt to connect
+  if( MQTTClient.connect(clientId.c_str(), mqtt_user, mqtt_pass) ) {
+    
+    #ifdef testmode
+    Serial.println("MQTT:connected");
+    #endif
+    
+    // Once connected, publish an announcement...
+    MQTTClient.publish("outTopic", "hello world");
+    // ... and resubscribe
+    MQTTClient.subscribe("inTopic");
+
+  }else{
+    #ifdef testmode
+    Serial.print("MQTT: connection failed, rc=");
+    Serial.print(MQTTClient.state());
+    Serial.println(" try again in 5 seconds");
+    #endif
+  }
+  
+}
+
+void MQTTCallback(char* topic, byte* payload, unsigned int length) // Функция получения данных от сервера
+{
+  #ifdef testmode
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+  #endif
+  
+  /*
+  String payload = pub.payload_string();
+  if(String(pub.topic()) == "/home/VPIN_Command")			// Проверяем из нужного ли нам топика пришли данные
+  {
+    float value = payload.toFloat();				
+    
+  }
+  */
+}
+
 void setup(){
-  // Debug console
-  Serial.begin(115200);
+  #ifdef testmode
+    Serial.begin(115200);
+  #endif
 
   // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
   if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT
@@ -114,7 +182,7 @@ void setup(){
   // Since we do not set NORMAL mode, we are in loopback mode by default.
   CAN0.setMode(MCP_NORMAL);
   #ifdef testmode
-  CAN0.setMode(MCP_LOOPBACK);
+    CAN0.setMode(MCP_LOOPBACK);
   #endif
   pinMode(CAN_PIN_INT, INPUT);                           // Configuring pin for /INT input
 
@@ -123,9 +191,12 @@ void setup(){
   Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
   //Blynk.begin(auth, ssid, pass, IPAddress(192,168,1,100), 8442);
 
+  MQTTClient.setServer(mqtt_server, mqtt_port);
+  MQTTClient.setCallback(MQTTCallback);
+  
   //timer.setInterval(1L, checkReadCAN);
   #ifdef testmode
-  timer.setInterval(4000L, testSendQueue);
+    timer.setInterval(4000L, testSendQueue);
   #endif
 }
 
@@ -133,4 +204,12 @@ void loop(){
   Blynk.run();
   timer.run();
   checkReadCAN();
+
+  if (WiFi.status() == WL_CONNECTED){
+    if (MQTTClient.connected()){
+      MQTTClient.loop();
+    }else{
+      MQTTReconnect();
+    }
+  }
 }
