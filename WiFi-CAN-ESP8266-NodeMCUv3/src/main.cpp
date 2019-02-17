@@ -167,7 +167,7 @@ void MQTTReconnect() {
   
 }
 
-void MQTTCallback(char* topic, byte* payload, unsigned int length){
+void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive from mqtt brocker incoming mes
   #ifdef testmode
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -178,14 +178,25 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){
   Serial.println();
   #endif
   
-  /*
-  String payload = pub.payload_string();
-  if(String(pub.topic()) == "/home/VPIN_Command")			// Проверяем из нужного ли нам топика пришли данные
-  {
-    float value = payload.toFloat();				
+  if(!strncmp(topic,"/home/VPIN_Command/",19)) // Проверяем из нужного ли нам топика пришли данные
+  { int topicPin = String((char*)(topic+19)).toInt();
+    float fvalue = atof((char*)payload);
+  
+    #ifdef testmode
+    Serial.print("MQTTCallback: topicPIN= ");
+    Serial.print(topicPin);
+    Serial.print("floatValue= ");
+    Serial.println(fvalue);
+    #endif
+
+    addCANMessage2Queue(0, topicPin, fvalue);//////////resend to CAN bus
     
+  }else{
+    #ifdef testmode
+    Serial.print("MQTTCallback: unknown topic = ");
+    Serial.println(topic);
+    #endif
   }
-  */
 }
 
 void setup(){
