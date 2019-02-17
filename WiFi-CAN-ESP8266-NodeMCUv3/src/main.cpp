@@ -27,11 +27,11 @@ int mqttmesonoff=0;
 //#ifdef testmode
 void testSendQueue(){
   #ifdef testmode
-  Serial.println("sending mqtt...");
+  Serial.println("test:sending mqtt...");
   #endif
   mqttmesonoff++;
   mqttmesonoff%=10;
-  for(int i=1;i<=2;i++){
+  for(int i=1;i<=1;i++){
     //addCANMessage2Queue(0,70+i,i);
 
     String topicPinName = "/home1/VPIN_";
@@ -44,7 +44,7 @@ void testSendQueue(){
   //Blynk.syncVirtual(VPIN_Home);
   //Blynk.syncVirtual(VPIN_OutdoorTemp);
   //Blynk.syncVirtual(VPIN_BoilerPower);
-  setReceivedVirtualPinValue(69,100);
+  //setReceivedVirtualPinValue(69,100);
   #endif
 }
 //#endif
@@ -152,10 +152,11 @@ void MQTTReconnect() {
     Serial.println("MQTT:connected");
     #endif
     
-    // Once connected, publish an announcement...
-    MQTTClient.publish("outTopic", "hello world");
+    #ifdef testmode
+    MQTTClient.publish("HelloOnConnectTopic", "hello, its ESP in testMode!");
+    #endif
     // ... and resubscribe
-    MQTTClient.subscribe("inTopic");
+    MQTTClient.subscribe("/home/VPIN_Command/#");
 
   }else{
     #ifdef testmode
