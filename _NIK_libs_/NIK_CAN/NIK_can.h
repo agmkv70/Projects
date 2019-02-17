@@ -35,7 +35,11 @@ int timerIntervalForNextSendCAN=0;
 int CANQueueError=0; 
 #define CANQueueErrorOverflow 7777
 static int CANQueueMaxLength=20;
-QueueList <CANMessage> CANQueue;
+QueueList <CANMessage*> CANQueue;
+
+extern "C" {
+  #include "user_interface.h"
+}
 
 ///////////////////////////////////////CAN//////////////////////////////////////////
 char sendVPinCAN(long mesID, unsigned char vPinNumber, float vPinValueFloat){ //transfer by CAN
@@ -67,25 +71,33 @@ void sendNextCANMessage(){
   }
 
   //queue is not empty:
-  CANMessage mes = CANQueue.peek();
+  CANMessage* mes = CANQueue.peek();
   
   #ifdef testmode
-  Serial.print("  >Sending queue:id=");
-  Serial.print(mes.mesID);
+  Serial.print("  >Sending queue#");
+  Serial.print(CANQueue.count());
+  Serial.print(" :id=");
+  Serial.print(mes->mesID);
   Serial.print(" VPIN=");
-  Serial.print(mes.vPinNumber);
+  Serial.print(mes->vPinNumber);
   Serial.print(" Value=");
-  Serial.print(mes.vPinValueFloat);
+  Serial.print(mes->vPinValueFloat);
+  Serial.print(" try=");
+  Serial.print(mes->nTries);
+  Serial.print(" leftMEM=");
+  Serial.print(system_get_free_heap_size());
   #endif
 
-  char res = sendVPinCAN( mes.mesID, mes.vPinNumber, mes.vPinValueFloat );
+  char res = sendVPinCAN( mes->mesID, mes->vPinNumber, mes->vPinValueFloat );
 
   if(res == CAN_OK){
     CANQueue.pop(); //drop this message
+    free(mes);
   }else{ //sending error:
-    mes.nTries++;
-    if( mes.nTries > 20 ){
+    mes->nTries++;
+    if( mes->nTries > 20 ){
       CANQueue.pop(); //drop this message
+      free(mes);
       CANQueueError = res;
     }
   }
@@ -119,9 +131,9 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   Serial.print(" Value=");
   Serial.print(vPinValueFloat);
   #endif
-  CANQueue.push( CANMessage{ mesID, vPinNumber, vPinValueFloat, 0} );
+  CANQueue.push( new CANMessage{ mesID, vPinNumber, vPinValueFloat, 0} );
   if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //2 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //5 millis try interval
   }
 }
 

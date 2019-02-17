@@ -1,7 +1,7 @@
 /* Comment this out to disable prints and save space */
 //#define BLYNK_PRINT Serial
 
-//#define testmode
+#define testmode
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
@@ -23,18 +23,43 @@ PubSubClient MQTTClient(espClient);
 long lastReconnectMQTTmillis=0;
 ////////////////////////////////////////////////////////////////
 
-#ifdef testmode
+int mqttmesonoff=0;
+//#ifdef testmode
 void testSendQueue(){
-  for(int i=0;i<10;i++){
-    addCANMessage2Queue(0,20+i,i*100);
+  #ifdef testmode
+  Serial.println("sending mqtt...");
+  #endif
+  mqttmesonoff++;
+  mqttmesonoff%=10;
+  for(int i=1;i<=2;i++){
+    //addCANMessage2Queue(0,70+i,i);
+
+    String topicPinName = "/home1/VPIN_";
+    topicPinName += (int)(i+70);
+    char val[20];
+    itoa(mqttmesonoff,val,10);
+    MQTTClient.publish(topicPinName.c_str(), val);		////////// send to MQTT broker
   }
+  #ifdef testmode
+  //Blynk.syncVirtual(VPIN_Home);
+  //Blynk.syncVirtual(VPIN_OutdoorTemp);
+  //Blynk.syncVirtual(VPIN_BoilerPower);
+  setReceivedVirtualPinValue(69,100);
+  #endif
 }
-#endif
+//#endif
 
 /////////////////////////////////////////////////////////////////
   
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   Blynk.virtualWrite(vPinNumber, vPinValueFloat);
+
+  String topicPinName = "/home1/VPIN_";
+  topicPinName += (int)vPinNumber;
+  char strval[20];
+  dtostrf(vPinValueFloat,10,1,strval);
+  MQTTClient.publish(topicPinName.c_str(), strval);		////////// send to MQTT broker
+
   return 0;
 }
 
@@ -56,9 +81,11 @@ BLYNK_WRITE_DEFAULT() {
     Serial.println(i.asString());
     #endif
 
-    String topicPinName = "/home1/VPIN_";
+    /*
+    String topicPinName = "/home1/VPIN_set_";
     topicPinName += (int)request.pin;
     MQTTClient.publish(topicPinName.c_str(), i.asString());		////////// send to MQTT broker
+    */
   }
 }
 
@@ -109,7 +136,13 @@ void MQTTReconnect() {
 
   Serial.print("Attempting MQTT connection... ");
   
+  #ifdef testmode
+  String clientId = "ESP_CAN_bridge_test";
+  #endif
+  #ifndef testmode
   String clientId = "ESP_CAN_bridge";
+  #endif
+  
   //clientId += String(random(0xffff), HEX);
   
   // Attempt to connect
@@ -134,13 +167,12 @@ void MQTTReconnect() {
   
 }
 
-void MQTTCallback(char* topic, byte* payload, unsigned int length) // Функция получения данных от сервера
-{
+void MQTTCallback(char* topic, byte* payload, unsigned int length){
   #ifdef testmode
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
@@ -196,8 +228,11 @@ void setup(){
   
   //timer.setInterval(1L, checkReadCAN);
   #ifdef testmode
-    timer.setInterval(4000L, testSendQueue);
+    timer.setInterval(10000L, testSendQueue);
   #endif
+  //#ifndef testmode
+  //  timer.setInterval(60000L, testSendQueue);
+  //#endif
 }
 
 void loop(){
