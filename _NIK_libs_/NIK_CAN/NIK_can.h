@@ -8,6 +8,7 @@
 #include <EEPROM.h>
 
 //#define testmode
+//#define testmodeCAN
 
 //#define CAN_PIN_INT  9        // INT = pin 9
 MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
@@ -37,9 +38,10 @@ int CANQueueError=0;
 static int CANQueueMaxLength=20;
 QueueList <CANMessage*> CANQueue;
 
-extern "C" {
-  #include "user_interface.h"
-}
+//only for ESP8166:
+//extern "C" {
+//  #include "user_interface.h"
+//}
 
 ///////////////////////////////////////CAN//////////////////////////////////////////
 char sendVPinCAN(long mesID, unsigned char vPinNumber, float vPinValueFloat){ //transfer by CAN
@@ -73,7 +75,7 @@ void sendNextCANMessage(){
   //queue is not empty:
   CANMessage* mes = CANQueue.peek();
   
-  #ifdef testmode
+  #ifdef testmodeCAN
   Serial.print("  >Sending queue#");
   Serial.print(CANQueue.count());
   Serial.print(" :id=");
@@ -84,8 +86,9 @@ void sendNextCANMessage(){
   Serial.print(mes->vPinValueFloat);
   Serial.print(" try=");
   Serial.print(mes->nTries);
-  Serial.print(" leftMEM=");
-  Serial.print(system_get_free_heap_size());
+  //only for ESP8166:
+  //Serial.print(" leftMEM=");
+  //Serial.print(system_get_free_heap_size());
   #endif
 
   char res = sendVPinCAN( mes->mesID, mes->vPinNumber, mes->vPinValueFloat );
@@ -101,7 +104,7 @@ void sendNextCANMessage(){
       CANQueueError = res;
     }
   }
-  #ifdef testmode
+  #ifdef testmodeCAN
   Serial.print(" res=");
   Serial.println(res);
   #endif
@@ -123,7 +126,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
     #endif
     return;
   }
-  #ifdef testmode
+  #ifdef testmodeCAN
   Serial.print("   pushing: id=");
   Serial.print(mesID);
   Serial.print(" VPIN=");
@@ -163,7 +166,7 @@ void checkReadCAN() {
   //If CAN0_INT pin is LOW, read receive buffer:
   CAN0.readMsgBuf(&rxId, &dataLen, rxBuf);      // Read data: len = data length, buf = data byte(s)
 
-  #ifdef testmode
+  #ifdef testmodeCAN
   //print received message to Serial:
   Serial.print( "Received message: ");
   Serial.print(((rxId & 0x80000000) == 0x80000000)?"Extended ID: ":"Standard ID:");

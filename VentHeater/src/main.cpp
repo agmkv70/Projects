@@ -4,6 +4,7 @@
 #include <SimpleDHT.h>
 
 #define testmode
+//#define testmodeCAN
 
 //K-thermocouple pins:
 #define MAX6675_CS PIN_A4
@@ -24,12 +25,12 @@
 #define PROTECTION_READ_PIN 4 //read heater protection (bimetal mechanical thermorelays are on or off)
 #define PROTECTION_ON_PIN   5 //turn on protection relay
 
-int targetHeaterStatus =0, //off/on/onHeat
-		currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
-		                      //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
+int targetHeaterStatus =0, //off-0/on-1/onHeat-2
+		//currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
+		  	                    //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
 		errorThermocouple=0,     //TEH overheat by thermocouple, thermocouple not giving data
     errorTEHOverheatError=0,curErrorRelayProtect=0,     //TEH overheat by relay protection
-    VALVESTATUS=0,   //0 1 (closed/opened), 2(opening), 3(closing)
+    VALVESTATUS=1,   //0 1 (closed/opened), 2(opening), 3(closing)
 		valveStopTimerId=0, ValveMovementTimeMil=10000, valveCloseTimerId=0,
 		TEHPIDSTATUS=0,	 //0 1 2 (off/on/error)
 		xx;
@@ -40,8 +41,8 @@ int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
 int   TEHPowerPeriodSeconds=5; //period of PWM in sec
 long  TEHPeriodMillis=5000L; //period of PWM in millis
 long  TEHPWMCycleStart=0; //last cycle start
-float TEHPID_KCoef=0.1, //for convenience multiply all TEHPID_K
-	    TEHPID_Kp=6, TEHPID_Ki=0.2, TEHPID_Kd=9;
+float TEHPID_KCoef=0.03, //for convenience multiply all TEHPID_K
+	    TEHPID_Kp=6, TEHPID_Ki=2, TEHPID_Kd=2;
 float TEHPID_Isum=0, TEHPID_prevDelta=0;
 
 float AirOutTargetTemp=21;
@@ -67,22 +68,32 @@ int ReadTempCycleInterval=5; //часто - отадка 10 сек
 #ifndef testmode
 int ReadTempCycleInterval=5; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7730+1; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+3; //if this is in eeprom, then we got valid values, not junk
 
 int readTempTimerId, TEHPWMTimerId, KTCtimerId, commandTimerId;
 
 ///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
 	float delta = AirOutTargetTemp - tempAirOut;
-	
+	//Serial.print("PID delta=");
+	//Serial.println(delta);
+		
 	//sum Integral part of PID only if our result is not saturated:
 	if(TEHPower<=0 && delta<0)
 		; //don't go too far down
-	else if(TEHPower>=10 && delta>0)
-		; //don't go too far up
-	else
-		TEHPID_Isum = TEHPID_Isum + delta;
-
+	else{ 
+		if(TEHPower>=10 && delta>0)
+			TEHPID_Isum = 0; //don't go too far up & fallback Isum (not to become too hot)
+		else
+			TEHPID_Isum = TEHPID_Isum + delta;
+	}
+	//restrict Isum:
+	if(TEHPID_Isum<-10){
+		TEHPID_Isum=-10;
+	}else if(TEHPID_Isum>10){
+		TEHPID_Isum=10;
+	}
+	
 	float P = (TEHPID_Kp * TEHPID_KCoef) * delta;
 	float I = (TEHPID_Ki * TEHPID_KCoef) * TEHPID_Isum;
 	float D = (TEHPID_Kd * TEHPID_KCoef) * (delta - TEHPID_prevDelta);
@@ -95,7 +106,7 @@ void TEHPIDEvaluation(){
 	}else if(TEHPower>10){
 		TEHPower=10;
 	}
-
+	
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_P, fround(P,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(I,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
@@ -104,7 +115,7 @@ void TEHPIDEvaluation(){
 }
 
 void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
-	if(TEHPIDSTATUS==0){
+	if(TEHPIDSTATUS==0 || tempAirOut > AirOutTargetTemp_MAX){ //additional protection
 		digitalWrite(TEH_SSR_PIN,LOW);
 		return;
 	}
@@ -178,7 +189,7 @@ byte TempDS_GetTemp(OneWire *ds, String dname, float *temp) { //interface object
 	#ifdef testmode
   Serial.print(" ");Serial.print(dname);
 	Serial.print("=");
-  Serial.print(*temp);
+  Serial.println(*temp);
 	#endif
 
   return 1; //OK
@@ -300,7 +311,7 @@ void KTCReadThermocouple_Event(){
 	//}
 
 	#ifdef testmode
-	Serial.println();
+	//Serial.println();
 	Serial.print("TEH: KTC_MAX6675 = ");
 	Serial.print(fround(tempTEH,1));
 	Serial.println();
@@ -348,6 +359,12 @@ void ValveOpen(){
 
 //////////////////////COMMANDer////////////////////// STATUS changes:
 void CommandCycle_Event(){
+  //Serial.println(targetHeaterStatus);
+	#ifdef testmode
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
+	#endif
 
 	if(digitalRead(PROTECTION_READ_PIN)==HIGH){
 		if(TEHPIDSTATUS==0){ //relay error2 (can't turn it off)
@@ -363,6 +380,9 @@ void CommandCycle_Event(){
 	if(curErrorRelayProtect!=0 || errorTEHOverheatError!=0){
 		TEHPIDSTATUS=0;
 	}
+
+	errorTEHOverheatError=0;//!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
+	curErrorRelayProtect=0;//!!!!!!
 
 	switch(targetHeaterStatus){
 
@@ -405,44 +425,57 @@ void CommandCycle_Event(){
 				;//nothing
 			}else{
 				ValveOpen();
+				if(ErrorTempTEH==0 && tempTEH<40.0){
+					TEHPower=5; //its cold - quick start
+				}else{
+					TEHPower=0;  //its hot or not measured - careful start
+				}
 			}
 		break;
 	}
 
 	if(TEHPIDSTATUS==0){
 		digitalWrite(PROTECTION_ON_PIN, LOW);
+		TEHPID_Isum=0; //clear integral part of PID
 	}else{
 		digitalWrite(PROTECTION_ON_PIN, HIGH);
-	}//for nest run time relay will switch
+	}//for nest run time - relay will switch
 }
 
 //////////////////////CAN commands///////////////////
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+	// #ifdef testmode
+	// Serial.print("received CAN message: VPIN=");
+	// Serial.print(vPinNumber);
+	// Serial.print(" FloatValue=");
+	// Serial.print(vPinValueFloat);
+	// Serial.println();
+	// #endif
 	switch(vPinNumber){
-		case VPIN_STATUS:
+		case VPIN_HEATER_TRGSTATUS:
 			targetHeaterStatus = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
-		case VPIN_PIDSTATUS:
-			TEHPIDSTATUS = (int)vPinValueFloat;
-			EEPROM_storeValues();
-			break;
-		case VPIN_VALVESTATUS:
-			VALVESTATUS = (int)vPinValueFloat;
-			EEPROM_storeValues();
-			break;
+		//case VPIN_HEATER_PIDSTATUS:
+		//	TEHPIDSTATUS = (int)vPinValueFloat;
+		//	EEPROM_storeValues();
+		//	break;
+		//case VPIN_HEATER_VALVESTATUS:
+		//	VALVESTATUS = (int)vPinValueFloat;
+		//	EEPROM_storeValues();
+		//	break;
 		case VPIN_ClearTEHOverheatError:
 			errorTEHOverheatError = 0;
-			EEPROM_storeValues();
+		//	EEPROM_storeValues();
 			break;
-		case VPIN_SetMainCycleInterval:
-			if(ReadTempCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
-				break;
-			ReadTempCycleInterval = (int)vPinValueFloat;
-			timer.deleteTimer(readTempTimerId);
-			readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
-			EEPROM_storeValues();
-			break;
+		// case VPIN_HEATER_SetReadTempCycleInterval:
+		// 	if(ReadTempCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
+		// 		break;
+		// 	ReadTempCycleInterval = (int)vPinValueFloat;
+		// 	timer.deleteTimer(readTempTimerId);
+		// 	readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
+		// 	EEPROM_storeValues();
+		// 	break;
 		case VPIN_SetTEHPowerPeriodSeconds:
 			if(vPinValueFloat<1) 
 				vPinValueFloat=1;
@@ -472,10 +505,11 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 
 //////////////////////EEPROM/////////////////////////
 void EEPROM_storeValues(){
+	return;
   EEPROM.put(eepromVIAddr,eepromValueIs);
   
-	EEPROM.put(VPIN_STATUS*sizeof(float),						boardSTATUS);
-  EEPROM.put(VPIN_MainCycleInterval*sizeof(float),ReadTempCycleInterval);
+	//EEPROM.put(VPIN_STATUS*sizeof(float),						boardSTATUS);
+  //EEPROM.put(VPIN_MainCycleInterval*sizeof(float),ReadTempCycleInterval);
 
   //EEPROM.put(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
   //EEPROM.put(VPIN_tempTargetFloorOut*sizeof(float), tempTargetFloorOut);
@@ -486,11 +520,12 @@ void EEPROM_storeValues(){
   EEPROM.put(VPIN_TEHPower*sizeof(float), 			TEHPower);
   EEPROM.put(VPIN_AirOutTargetTemp*sizeof(float), AirOutTargetTemp);
 
-	EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			TEHPIDSTATUS);
-  EEPROM.put(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
+	//EEPROM.put(VPIN_PIDSTATUS*sizeof(float),			TEHPIDSTATUS);
+  //EEPROM.put(VPIN_VALVESTATUS*sizeof(float),		VALVESTATUS);
   
 }
 void EEPROM_restoreValues(){
+	return;
   int ival;
   EEPROM.get(eepromVIAddr,ival);
   if(ival != eepromValueIs){
@@ -498,12 +533,12 @@ void EEPROM_restoreValues(){
     return; //never wrote valid values into eeprom
   }
 	
-	EEPROM.get(VPIN_STATUS*sizeof(float),boardSTATUS);
-  int aNewInterval;
-	EEPROM.get(VPIN_MainCycleInterval*sizeof(float),aNewInterval);
-  if(aNewInterval > 0){
-    ReadTempCycleInterval = aNewInterval;
-  }
+	// EEPROM.get(VPIN_STATUS*sizeof(float),boardSTATUS);
+  // int aNewInterval;
+	// EEPROM.get(VPIN_MainCycleInterval*sizeof(float),aNewInterval);
+  // if(aNewInterval > 0){
+  //   ReadTempCycleInterval = aNewInterval;
+  // }
   
   //EEPROM.get(VPIN_ManualFloorIn*sizeof(float), 			tempTargetFloorIn);
   //EEPROM.get(VPIN_tempTargetFloorOut*sizeof(float), 	tempTargetFloorOut);
@@ -514,8 +549,8 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_TEHPower*sizeof(float), 			TEHPower);
   EEPROM.get(VPIN_AirOutTargetTemp*sizeof(float), 	AirOutTargetTemp);
 
-	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				TEHPIDSTATUS);
-	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
+	//EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				TEHPIDSTATUS);
+	//EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
@@ -572,15 +607,15 @@ void setup(void) {
   //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
   //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
   
-	#ifdef testmode
-	CAN0.setMode(MCP_LOOPBACK);
-	#endif
-	#ifndef testmode
+	//#ifdef testmode
+	//CAN0.setMode(MCP_LOOPBACK);
+	//#endif
+	//#ifndef testmode
   CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
-	#endif
+	//#endif
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
-	commandTimerId = timer.setInterval(500L, CommandCycle_Event); 
+	commandTimerId = timer.setInterval(1000L, CommandCycle_Event); //500 if not test
 	delay(100); //for two timers not at once
   readTempTimerId = timer.setInterval(1000L * ReadTempCycleInterval, ReadTemperatureCycle_StartEvent); //start regularly
 	delay(150); //for two timers not at once

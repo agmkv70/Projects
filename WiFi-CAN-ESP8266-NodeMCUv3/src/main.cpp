@@ -1,7 +1,8 @@
 /* Comment this out to disable prints and save space */
 //#define BLYNK_PRINT Serial
 
-#define testmode
+//#define testmode
+//#define testmodeCAN
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
@@ -140,7 +141,7 @@ void MQTTReconnect() {
   String clientId = "ESP_CAN_bridge_test";
   #endif
   #ifndef testmode
-  String clientId = "ESP_CAN_bridge";
+  String clientId = "ESP_CAN_bridge2";
   #endif
   
   //clientId += String(random(0xffff), HEX);
@@ -152,9 +153,9 @@ void MQTTReconnect() {
     Serial.println("MQTT:connected");
     #endif
     
-    #ifdef testmode
+    //#ifdef testmode
     MQTTClient.publish("HelloOnConnectTopic", "hello, its ESP in testMode!");
-    #endif
+    //#endif
     // ... and resubscribe
     MQTTClient.subscribe("/home/VPIN_Command/#");
 

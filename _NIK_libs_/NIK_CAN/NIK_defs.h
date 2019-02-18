@@ -61,6 +61,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_LEDSetPWMch3  45
 #define VPIN_LEDSetPWMch4  46
 
+//HEATER:
 #define VPIN_TEHPID_Kp 50 
 #define VPIN_TEHPID_Ki 51 
 #define VPIN_TEHPID_Kd 52 
@@ -78,8 +79,10 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_TEHTemp       63
 #define VPIN_AirOutTemp    64
 #define VPIN_TEHMaxTemp    65
-#define VPIN_HeaterStatus  66   //standby, opening, opening+heating, 
-                                //heating, blowing(cooling), closing, ERROR
 #define VPIN_ClearTEHOverheatError 67
-#define VPIN_ 1
-
+#define VPIN_HEATER_TRGSTATUS       75     //off-0/on-1/onHeat-2
+#define VPIN_HEATER_TEHPIDSTATUS    76     //0 1 2 (off/on/error)
+#define VPIN_HEATER_VALVESTATUS     77     //0 1 (closed/opened), 2(opening), 3(closing)
+#define VPIN_HEATER_SetReadTempCycleInterval 78
+#define VPIN_HEATER_TEHERROR    79
+//#define VPIN_HEATER_ERR_TEHOVERHEAT    80
