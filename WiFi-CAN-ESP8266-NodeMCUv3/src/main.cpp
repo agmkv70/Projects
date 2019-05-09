@@ -200,6 +200,8 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive fr
     #endif
   }
 }
+#define LPin D8
+void yLEDBlink();
 
 void setup(){
   #ifdef testmode
@@ -246,6 +248,33 @@ void setup(){
   //#ifndef testmode
   //  timer.setInterval(60000L, testSendQueue);
   //#endif
+
+  timer.setInterval(300,yLEDBlink);
+  pinMode(LPin,OUTPUT);
+  //digitalWrite(LPin,HIGH);
+  //delay(500);
+  //digitalWrite(LPin,LOW);
+  //delay(500);
+}
+
+int yLED=1,yblink=0;
+
+void yLEDBlink(){
+  if(yLED==0){
+    digitalWrite(LPin,LOW);
+  }else if(yLED==1){
+    digitalWrite(LPin,HIGH);
+  }else{ //2==blink
+    if(yblink==0){
+      digitalWrite(LPin,HIGH);
+      yblink=1;
+    }else{
+      yblink=0;
+      digitalWrite(LPin,LOW);
+    } 
+
+  }
+
 }
 
 void loop(){
@@ -254,10 +283,16 @@ void loop(){
   checkReadCAN();
 
   if (WiFi.status() == WL_CONNECTED){
+    yLED=1;
+    //Serial.print(1);
     if (MQTTClient.connected()){
       MQTTClient.loop();
     }else{
       MQTTReconnect();
     }
+  }else
+  {
+    yLED=2;
   }
+  
 }

@@ -79,10 +79,13 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_TEHTemp       63
 #define VPIN_AirOutTemp    64
 #define VPIN_TEHMaxTemp    65
-#define VPIN_ClearTEHOverheatError 67
+#define VPIN_ClearTEHOverheatError  67
 #define VPIN_HEATER_TRGSTATUS       75     //off-0/on-1/onHeat-2
 #define VPIN_HEATER_TEHPIDSTATUS    76     //0 1 2 (off/on/error)
 #define VPIN_HEATER_VALVESTATUS     77     //0 1 (closed/opened), 2(opening), 3(closing)
 #define VPIN_HEATER_SetReadTempCycleInterval 78
-#define VPIN_HEATER_TEHERROR    79
+#define VPIN_HEATER_TEHERROR        79
 //#define VPIN_HEATER_ERR_TEHOVERHEAT    80
+#define VPIN_TEHTargetTemp          81
+#define VPIN_TEHTargetTempGraph     82
+#define VPIN_TEH_KdTempAirIn         83 //coef

@@ -41,13 +41,18 @@ int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
 int   TEHPowerPeriodSeconds=5; //period of PWM in sec
 long  TEHPeriodMillis=5000L; //period of PWM in millis
 long  TEHPWMCycleStart=0; //last cycle start
-float TEHPID_KCoef=0.03, //for convenience multiply all TEHPID_K
-	    TEHPID_Kp=6, TEHPID_Ki=2, TEHPID_Kd=2;
-float TEHPID_Isum=0, TEHPID_prevDelta=0;
+float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
+	    TEHPID_Kp=6, TEHPID_Ki=1, TEHPID_Kd=40;
+float TEHPID_Isum=0, TEHPID_prevtempTEH=0;
+
+float KdT_TEH=2, minKdT_TEH=1, maxKdT_TEH=10; //coef: TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn)
 
 float AirOutTargetTemp=21;
 float AirOutTargetTemp_MIN=18;
-float AirOutTargetTemp_MAX=24;
+float AirOutTargetTemp_MAX=40;//30-test, 24-real
+float TEHTargetTemp=40;
+float TEHTargetTemp_MIN=18;
+float TEHTargetTemp_MAX=100;//100-test
 
 float TEHMaxTemp=250;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
 float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
@@ -56,8 +61,8 @@ float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
 
 float tempAirIn=0, humidityAirIn=NAN, tempTEH=0;
 float tempAirOut=20, offsetAirOut=0; //температура и калибровочное смещение(если знаю)
-float tempTargetAirOut=20;
-int   ErrorTempAirIn=0,ErrorHumidityAirIn=0,ErrorTempTEH=0,ErrorTempAirOut=0;
+int   ErrorTempAirIn=0,ErrorHumidityAirIn=0,
+			ErrorTempTEH=0,ErrorTempAirOut=0;
 
 SimpleDHT22 dht_AirIn(TempIn_DHT_PIN);
 OneWire  TempDS_AirOut(TempOut_DS_PIN); 
@@ -74,7 +79,10 @@ int readTempTimerId, TEHPWMTimerId, KTCtimerId, commandTimerId;
 
 ///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
-	float delta = AirOutTargetTemp - tempAirOut;
+	TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn);
+	float delta = TEHTargetTemp - tempTEH;
+	if(TEHPID_prevtempTEH==0)
+		TEHPID_prevtempTEH = tempTEH; //init TEHPID_prevtempTEH
 	//Serial.print("PID delta=");
 	//Serial.println(delta);
 		
@@ -87,6 +95,11 @@ void TEHPIDEvaluation(){
 		else
 			TEHPID_Isum = TEHPID_Isum + delta;
 	}
+	if(TEHPID_Isum<0 && delta>0){//when coming over zero delta - nullify intergal part
+		TEHPID_Isum=0;
+	}else if(TEHPID_Isum>0 && delta<0){
+		TEHPID_Isum=0;
+	}
 	//restrict Isum:
 	if(TEHPID_Isum<-10){
 		TEHPID_Isum=-10;
@@ -96,8 +109,8 @@ void TEHPIDEvaluation(){
 	
 	float P = (TEHPID_Kp * TEHPID_KCoef) * delta;
 	float I = (TEHPID_Ki * TEHPID_KCoef) * TEHPID_Isum;
-	float D = (TEHPID_Kd * TEHPID_KCoef) * (delta - TEHPID_prevDelta);
-	TEHPID_prevDelta = delta;
+	float D = (TEHPID_Kd * TEHPID_KCoef) * (TEHPID_prevtempTEH - tempTEH); //new D calculation (absolute) - stable when target changes
+	TEHPID_prevtempTEH = tempTEH;
 
   TEHPower = TEHPower + P + I + D;
 	
@@ -112,10 +125,15 @@ void TEHPIDEvaluation(){
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTempGraph, fround(AirOutTargetTemp,1));
+	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTargetTempGraph, fround(TEHTargetTemp,1));
 }
 
 void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
-	if(TEHPIDSTATUS==0 || tempAirOut > AirOutTargetTemp_MAX){ //additional protection
+	if(TEHPIDSTATUS==0){
+		digitalWrite(TEH_SSR_PIN,LOW);
+		return;
+	}
+	if(ErrorTempAirIn || ErrorTempTEH){
 		digitalWrite(TEH_SSR_PIN,LOW);
 		return;
 	}
@@ -123,7 +141,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 	long millisFromStart = millis()-TEHPWMCycleStart;
 		
 	if( millisFromStart >= TEHPeriodMillis ){ //time to START:
-		if( !ErrorTempAirOut && TEHPIDSTATUS>0 ){
+		if( !ErrorTempTEH && TEHPIDSTATUS>0 ){
 			TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
 		}
 	  TEHPWMCycleStart = millis();
@@ -145,6 +163,13 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 				if(millisOn < TEHPeriodMillis)	TEHPowerCurrentStateOnOff=0;
 				//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPowerOnOff, TEHPowerCurrentStateOnOff);
 			}
+	}
+
+	if(tempAirOut > AirOutTargetTemp_MAX){ //additional protection
+		TEHPowerCurrentStateOnOff=0;
+	}
+  if(tempTEH > TEHTargetTemp_MAX){ //additional protection
+		TEHPowerCurrentStateOnOff=0;
 	}
 
   if(TEHPowerCurrentStateOnOff==1)
@@ -419,6 +444,8 @@ void CommandCycle_Event(){
 
 		case 2: //targetHeaterStatus==onHeat
 			if(errorTEHOverheatError==0 && curErrorRelayProtect==0){
+				if(TEHPIDSTATUS==0) //its turning on
+					TEHPID_prevtempTEH=0; //init for no PID start lags
 				TEHPIDSTATUS=1; //turn on TEH
 			}
 			if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
@@ -426,7 +453,7 @@ void CommandCycle_Event(){
 			}else{
 				ValveOpen();
 				if(ErrorTempTEH==0 && tempTEH<40.0){
-					TEHPower=5; //its cold - quick start
+					TEHPower = 5; //its cold - quick start
 				}else{
 					TEHPower=0;  //its hot or not measured - careful start
 				}
@@ -456,17 +483,16 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 			targetHeaterStatus = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
-		//case VPIN_HEATER_PIDSTATUS:
-		//	TEHPIDSTATUS = (int)vPinValueFloat;
-		//	EEPROM_storeValues();
-		//	break;
-		//case VPIN_HEATER_VALVESTATUS:
-		//	VALVESTATUS = (int)vPinValueFloat;
-		//	EEPROM_storeValues();
-		//	break;
 		case VPIN_ClearTEHOverheatError:
 			errorTEHOverheatError = 0;
-		//	EEPROM_storeValues();
+			break;
+		case VPIN_TEH_KdTempAirIn:
+			if(minKdT_TEH > vPinValueFloat)
+				vPinValueFloat = minKdT_TEH;
+			if(vPinValueFloat > maxKdT_TEH)
+				vPinValueFloat = maxKdT_TEH;
+			KdT_TEH = vPinValueFloat;
+			EEPROM_storeValues();
 			break;
 		// case VPIN_HEATER_SetReadTempCycleInterval:
 		// 	if(ReadTempCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
