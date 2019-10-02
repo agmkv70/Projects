@@ -3,6 +3,7 @@
 
 //#define testmode
 //#define testmodeCAN
+//#define MQTT_On
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
@@ -15,6 +16,7 @@
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
+#ifdef MQTT_On
 ////////////////////////////////////////////////////////////////
 #include <PubSubClient.h>
 #define BUFFER_SIZE 200
@@ -26,7 +28,7 @@ long lastReconnectMQTTmillis=0;
 
 int mqttmesonoff=0;
 //#ifdef testmode
-void testSendQueue(){
+void testSendQueueMQTT(){
   #ifdef testmode
   Serial.println("test:sending mqtt...");
   #endif
@@ -39,27 +41,30 @@ void testSendQueue(){
     topicPinName += (int)(i+70);
     char val[20];
     itoa(mqttmesonoff,val,10);
-    MQTTClient.publish(topicPinName.c_str(), val);		////////// send to MQTT broker
+    MQTTClient.publish(topicPinName.c_str(), val);		////////// send to MQTT broker topic="71" - i++ every 10 sec. ?!
   }
-  #ifdef testmode
+  //#ifdef testmode
   //Blynk.syncVirtual(VPIN_Home);
   //Blynk.syncVirtual(VPIN_OutdoorTemp);
   //Blynk.syncVirtual(VPIN_BoilerPower);
   //setReceivedVirtualPinValue(69,100);
-  #endif
+  //#endif
 }
 //#endif
+#endif
 
 /////////////////////////////////////////////////////////////////
   
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   Blynk.virtualWrite(vPinNumber, vPinValueFloat);
 
+  #ifdef MQTT_On
   String topicPinName = "/home1/VPIN_";
   topicPinName += (int)vPinNumber;
   char strval[20];
   dtostrf(vPinValueFloat,10,1,strval);
   MQTTClient.publish(topicPinName.c_str(), strval);		////////// send to MQTT broker
+  #endif
 
   return 0;
 }
@@ -128,6 +133,7 @@ BLYNK_CONNECTED() {
   }
 }
 
+#ifdef MQTT_On
 void MQTTReconnect() {
   long curMillis = millis();
   if( curMillis - lastReconnectMQTTmillis < 5000 ){ 
@@ -200,8 +206,12 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive fr
     #endif
   }
 }
+#endif
+
+#ifdef WifiLED_On
 #define LPin D8
 void yLEDBlink();
+#endif
 
 void setup(){
   #ifdef testmode
@@ -238,6 +248,7 @@ void setup(){
   Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
   //Blynk.begin(auth, ssid, pass, IPAddress(192,168,1,100), 8442);
 
+  #ifdef MQTT_On
   MQTTClient.setServer(mqtt_server, mqtt_port);
   MQTTClient.setCallback(MQTTCallback);
   
@@ -248,17 +259,20 @@ void setup(){
   //#ifndef testmode
   //  timer.setInterval(60000L, testSendQueue);
   //#endif
+  #endif
 
+  #ifdef WifiLED_On
   timer.setInterval(300,yLEDBlink);
   pinMode(LPin,OUTPUT);
   //digitalWrite(LPin,HIGH);
   //delay(500);
   //digitalWrite(LPin,LOW);
   //delay(500);
+  #endif
 }
 
+#ifdef WifiLED_On
 int yLED=1,yblink=0;
-
 void yLEDBlink(){
   if(yLED==0){
     digitalWrite(LPin,LOW);
@@ -274,25 +288,25 @@ void yLEDBlink(){
     } 
 
   }
-
 }
+#endif
 
 void loop(){
   Blynk.run();
   timer.run();
   checkReadCAN();
 
+  #ifdef WifiLED_On
   if (WiFi.status() == WL_CONNECTED){
     yLED=1;
-    //Serial.print(1);
-    if (MQTTClient.connected()){
+    
+    #ifdef MQTT_On
+    if (MQTTClient.connected())
       MQTTClient.loop();
-    }else{
+    else
       MQTTReconnect();
-    }
+    #endif
   }else
-  {
     yLED=2;
-  }
-  
+  #endif
 }
