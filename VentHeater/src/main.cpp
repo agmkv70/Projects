@@ -25,11 +25,11 @@
 #define PROTECTION_READ_PIN 4 //read heater protection (bimetal mechanical thermorelays are on or off)
 #define PROTECTION_ON_PIN   5 //turn on protection relay
 
-int targetHeaterStatus =0$ //off-0/on-1/onHeat-2
+int targetHeaterStatus =0; //off-0/on-1/onHeat-2
     //currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
                             //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
 int errorThermocouple=0;     //TEH overheat by thermocouple, thermocouple not giving data
-int errorTEHOverheatError=0,curErrorRelayProtect=0;     //TEH overheat by relay protection
+int errorTEHOverheatError=0,curErrorRelayProtect=0; //1(can't turn ON), 2(can't turn OFF) //TEH overheat by relay protection
 int VALVESTATUS=1;   //0 1 (closed/opened), 2(opening), 3(closing)
 int valveStopTimerId=0, ValveMovementTimeMil=10000, valveCloseTimerId=0;
 int TEHPIDSTATUS=0;   //0 1 2 (off/on/error)
@@ -410,7 +410,7 @@ void CommandCycle_Event(){
 	PROTECTIONRELAYSTATUS=0;
   }
 
-  errorTEHOverheatError=0;//!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
+  //errorTEHOverheatError=0;//!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
   curErrorRelayProtect=0;//!!!!!!
 
   switch(targetHeaterStatus){
@@ -440,7 +440,7 @@ void CommandCycle_Event(){
     case 1: //targetHeaterStatus==on (without heater)
 	  TEHPIDSTATUS=0; //turn off TEH
 	  if(VALVESTATUS==1 || VALVESTATUS==2){ //1 opened,2 opening
-	  	if(VALVESTATUS==1 && curErrorRelayProtect==0 && errorTEHOverheatError==0){ //1 opened
+	  	if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
 			PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
 		}
       }else{
@@ -449,7 +449,7 @@ void CommandCycle_Event(){
     break;
 
     case 2: //targetHeaterStatus==onHeat
-      if(errorTEHOverheatError==0 && curErrorRelayProtect==0){
+      if(errorTEHOverheatError==0){
         if(TEHPIDSTATUS==0){ //its turning on
           TEHPID_prevtempTEH=0; //init for no PID start lags
 		}
@@ -457,7 +457,7 @@ void CommandCycle_Event(){
 		PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
       }
       if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
-	  	if(VALVESTATUS==1 && curErrorRelayProtect==0){ //1 opened
+	  	if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
 			PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
 		}
       }else{
@@ -471,11 +471,11 @@ void CommandCycle_Event(){
     break;
   }
 
-  if((TEHPIDSTATUS==0 && PROTECTIONRELAYSTATUS==0) || curErrorRelayProtect!=0 || errorTEHOverheatError!=0){
+  if((TEHPIDSTATUS==0 && PROTECTIONRELAYSTATUS==0) || errorTEHOverheatError!=0){
     digitalWrite(PROTECTION_ON_PIN, LOW);
     TEHPID_Isum=0; //clear integral part of PID
   }else{
-	if(curErrorRelayProtect==0){
+	if(errorTEHOverheatError==0){
       digitalWrite(PROTECTION_ON_PIN, HIGH);
 	}
   }//for nest run time - relay will switch
