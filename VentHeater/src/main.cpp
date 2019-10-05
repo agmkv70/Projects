@@ -25,14 +25,14 @@
 #define PROTECTION_READ_PIN 4 //read heater protection (bimetal mechanical thermorelays are on or off)
 #define PROTECTION_ON_PIN   5 //turn on protection relay
 
-int targetHeaterStatus =0; //off-0/on-1/onHeat-2
+int targetHeaterStatus =0; //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
     //currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
-                            //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
+                             //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
 int errorThermocouple=0;     //TEH overheat by thermocouple, thermocouple not giving data
 int errorTEHOverheatError=0,curErrorRelayProtect=0; //1(can't turn ON), 2(can't turn OFF) //TEH overheat by relay protection
 int VALVESTATUS=1;   //0 1 (closed/opened), 2(opening), 3(closing)
-int valveStopTimerId=0, ValveMovementTimeMil=10000, valveCloseTimerId=0;
-int TEHPIDSTATUS=0;   //0 1 2 (off/on/error)
+int valveStopTimerId=0, ValveMovementTimeMil=15000, valveCloseTimerId=0;
+int TEHPIDSTATUS=0;   //0 1 2 (off/onPID/onKPWR/error)
 int PROTECTIONRELAYSTATUS=0; //to turn on this relay (with FAN and TEH on it: FAN as a way to manage it, TEH for protection) 
 							 //while just blowing without heating (maybe its testing mode only and later I'll manage FAN in other way)
     
@@ -48,15 +48,19 @@ float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
 float TEHPID_Isum=0, TEHPID_prevtempTEH=0;
 
 float KdT_TEH=2, minKdT_TEH=1, maxKdT_TEH=10; //coef: TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn)
+float kPwr2Air=0.3; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
+float kPwr_preMillisPerC=0; //kPwr mode: full power preheat millis/*C
+int kPwr_preheatStart=0,kPwr_PreheatIsOn=0; //kPwr mode: flag to start preheating
+unsigned long kPwr_lastPreheatStartMillis=0, minpreheatRepeatPeriodMillis=5*60*1000L, StopPreheatTimerId=0; //remember for not to preheat too often
 
 float AirOutTargetTemp=21;
-float AirOutTargetTemp_MIN=18;
-float AirOutTargetTemp_MAX=40;//30-test, 24-real
+float AirOutTargetTemp_MIN=15;
+float AirOutTargetTemp_MAX=24;//30-test, 24-real
 float TEHTargetTemp=40;
 float TEHTargetTemp_MIN=18;
-float TEHTargetTemp_MAX=100;//100-test
+float TEHTargetTemp_MAX=150;//100-test
 
-float TEHMaxTemp=250;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
+float TEHMaxTemp=200;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
 float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
 //надо двойную защиту: по абс.макс. и по скорости прироста температуры выставить:
 //- если за заданное время прирост больше максимума - значит нет продува!
@@ -75,9 +79,60 @@ int ReadTempCycleInterval=5; //часто - отадка 10 сек
 #ifndef testmode
 int ReadTempCycleInterval=5; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7730+3; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+4; //if this is in eeprom, then we got valid values, not junk
 
 int readTempTimerId, TEHPWMTimerId, KTCtimerId, commandTimerId;
+
+void StopPreheat(){
+  kPwr_PreheatIsOn=0;
+  StopPreheatTimerId=0;
+}
+///////////////////////////////////TEH kPwr//////////////////////////////
+void TEH_kPwr_Evaluation(){
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_kPwrPreheatON, kPwr_PreheatIsOn);
+  if(ErrorTempAirIn!=0){
+    TEHPower=0;
+    return;
+  }
+
+  if(kPwr_PreheatIsOn==1){
+    TEHPower=10;
+    return;
+  }
+
+  if(kPwr_preheatStart==1){ //start preheating:
+    kPwr_preheatStart=0;
+    if(AirOutTargetTemp-tempAirOut<0){
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_ErrType, 101);
+      return;
+    }
+    long preheatMillis = (float)(kPwr_preMillisPerC) * (AirOutTargetTemp-tempAirOut);
+    if(preheatMillis==0 //nothing to start
+      || kPwr_lastPreheatStartMillis!=0 && millis()-kPwr_lastPreheatStartMillis < minpreheatRepeatPeriodMillis ){ //its too often
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_ErrType, 102);
+      return; //no start
+    }
+
+    kPwr_lastPreheatStartMillis = millis();
+    kPwr_PreheatIsOn = 1;
+    StopPreheatTimerId = timer.setTimeout(preheatMillis, StopPreheat); //start once after timeout
+    TEHPower=10;
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_ErrType, preheatMillis);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_kPwrPreheatON, kPwr_PreheatIsOn);
+    return;
+  }
+  
+  //regular kPwr regime:
+  TEHPower = kPwr2Air * (AirOutTargetTemp-tempAirIn);
+  if(TEHPower<0){
+    TEHPower=0;
+  }else if(TEHPower>10){
+    TEHPower=10;
+  }
+  
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTempGraph, fround(AirOutTargetTemp,1));
+}
 
 ///////////////////////////////////TEH PID//////////////////////////////
 void TEHPIDEvaluation(){
@@ -135,7 +190,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
     digitalWrite(TEH_SSR_PIN,LOW);
     return;
   }
-  if(ErrorTempAirIn || ErrorTempTEH){
+  if(ErrorTempAirIn || ErrorTempTEH || ErrorTempAirOut){
     digitalWrite(TEH_SSR_PIN,LOW);
     return;
   }
@@ -143,8 +198,12 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
   long millisFromStart = millis()-TEHPWMCycleStart;
     
   if( millisFromStart >= TEHPeriodMillis ){ //time to START:
-    if( !ErrorTempTEH && TEHPIDSTATUS>0 ){
-      TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
+    if( !ErrorTempTEH ){
+      if( TEHPIDSTATUS==1 ){
+        TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
+      }else if( TEHPIDSTATUS==2 ){
+        TEH_kPwr_Evaluation();
+      }
     }
     TEHPWMCycleStart = millis();
     millisFromStart=0;
@@ -320,9 +379,9 @@ void ReadTemperatureCycle_ReadTempEvent() {
   // Serial.println();
   // #endif
   
-  if(ErrorTempTEH==0){
+  //if(ErrorTempTEH==0){
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTemp,fround(tempTEH,0)); //rounded 0.0 value
-  }
+  //}
 }
 
 void KTCReadThermocouple_Event(){
@@ -331,6 +390,15 @@ void KTCReadThermocouple_Event(){
   tempTEH = readThermocoupleMAX6675();
   if(tempTEH==NAN){
     ErrorTempTEH++;
+    tempTEH = -39.9;
+  }
+  if(tempTEH<-40){
+    ErrorTempTEH++;
+    tempTEH = -40;
+  }
+  if(tempTEH>500){
+    ErrorTempTEH++;
+    tempTEH = 500;
   }
   //send temp with other temps, but not here
   //else{
@@ -385,37 +453,49 @@ void ValveOpen(){
   valveStopTimerId = timer.setTimeout(ValveMovementTimeMil, ValveStop); //start once after timeout
 }
 
+void onChangeHeaterStatus(int old_targetHeaterStatus){
+}
+
+void InsureSafeValues(){
+  if(AirOutTargetTemp<AirOutTargetTemp_MIN) AirOutTargetTemp=AirOutTargetTemp_MIN;
+  if(AirOutTargetTemp>AirOutTargetTemp_MAX) AirOutTargetTemp=AirOutTargetTemp_MAX;
+  if(TEHTargetTemp<TEHTargetTemp_MIN) TEHTargetTemp=TEHTargetTemp_MIN;
+  if(TEHTargetTemp>TEHTargetTemp_MAX) TEHTargetTemp=TEHTargetTemp_MAX;
+}
 //////////////////////COMMANDer////////////////////// STATUS changes:
 void CommandCycle_Event(){
+  InsureSafeValues();
   //Serial.println(targetHeaterStatus);
   #ifdef testmode
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_PIN4READ, digitalRead(PROTECTION_READ_PIN));
   #endif
 
-  if(digitalRead(PROTECTION_READ_PIN)==HIGH){
+  if(digitalRead(PROTECTION_READ_PIN)==LOW){
     if(TEHPIDSTATUS==0 && PROTECTIONRELAYSTATUS==0){ //relay error2 (can't turn it off)
       curErrorRelayProtect=2;
       errorTEHOverheatError = curErrorRelayProtect; //wait manual command to restart
     }
-  }else{//PROTECTION_READ_PIN==LOW
+  }else{//PROTECTION_READ_PIN==HIGH
     if(TEHPIDSTATUS==1 || PROTECTIONRELAYSTATUS==1){ //protection error1 (probably overheat!) (can't turn on because protection has broken circuit)
       curErrorRelayProtect=1;
       errorTEHOverheatError = curErrorRelayProtect; //wait manual command to restart
     }
   }
+  errorTEHOverheatError=0;//testing!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
+  curErrorRelayProtect=0; //testing!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
   if(curErrorRelayProtect!=0 || errorTEHOverheatError!=0){
     TEHPIDSTATUS=0;
-	PROTECTIONRELAYSTATUS=0;
+	  PROTECTIONRELAYSTATUS=0;
   }
-
-  //errorTEHOverheatError=0;//!!!!!!!!!!!!!!!!!!!!!!!!!!****************************
-  curErrorRelayProtect=0;//!!!!!!
+  curErrorRelayProtect=0; 
 
   switch(targetHeaterStatus){
 
-    case 0: //targetHeaterStatus==off
+    case 0: //closed+off
+    case 1: //closed+off
       TEHPIDSTATUS=0; //turn off TEH
 	  if(VALVESTATUS==0 || VALVESTATUS==3){ //0 closed,3 closing
 	  	;//nothing
@@ -437,33 +517,64 @@ void CommandCycle_Event(){
       }
     break;
 
-    case 1: //targetHeaterStatus==on (without heater)
+    case 2: //opened+off
+    TEHPIDSTATUS=0; //turn off TEH
+    if(VALVESTATUS==1 || VALVESTATUS==2){ //1 opened,2 opening
+	  	if(tempTEH!=NAN && tempTEH>45){
+        ;//its too hot - just wait
+      }else{ //now its cold:
+        PROTECTIONRELAYSTATUS=0; //turn off FAN
+	    }
+    }else{
+      ValveOpen();
+    }
+    break;
+
+    case 3: //open+FAN (without heater)
 	  TEHPIDSTATUS=0; //turn off TEH
 	  if(VALVESTATUS==1 || VALVESTATUS==2){ //1 opened,2 opening
 	  	if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
-			PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
-		}
+			  PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
+		  }
+    }else{
+      ValveOpen();
+    }
+    break;
+
+    case 4: //open+fan+heat(kPwr)
+      
+      if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
+	  	  if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
+          if(TEHPIDSTATUS==0){ //it was off
+            TEHPID_prevtempTEH=0; //init for no PID start lags
+            kPwr_preheatStart=1;
+          }
+          TEHPIDSTATUS=2; //turn on TEH
+          PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
+        }
       }else{
         ValveOpen();
+        //if(ErrorTempTEH==0 && tempTEH<40.0){
+        //  TEHPower = 1; //its cold - quick start
+        //}else{
+        //  TEHPower=0;  //its hot or not measured - careful start
+        //}
       }
     break;
 
-    case 2: //targetHeaterStatus==onHeat
-      if(errorTEHOverheatError==0){
-        if(TEHPIDSTATUS==0){ //its turning on
-          TEHPID_prevtempTEH=0; //init for no PID start lags
-		}
-        TEHPIDSTATUS=1; //turn on TEH
-		PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
-      }
+    case 5: //open+fan+heat(PID)
       if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
-	  	if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
-			PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
-		}
+	  	  if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
+          if(TEHPIDSTATUS==0){ //its turning on
+            TEHPID_prevtempTEH=0; //init for no PID start lags
+		      }
+          TEHPIDSTATUS=1; //turn on TEH
+          PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
+        }
       }else{
         ValveOpen();
         if(ErrorTempTEH==0 && tempTEH<40.0){
-          TEHPower = 5; //its cold - quick start
+          TEHPower = 1; //its cold - quick start
         }else{
           TEHPower=0;  //its hot or not measured - careful start
         }
@@ -475,10 +586,10 @@ void CommandCycle_Event(){
     digitalWrite(PROTECTION_ON_PIN, LOW);
     TEHPID_Isum=0; //clear integral part of PID
   }else{
-	if(errorTEHOverheatError==0){
+	  if(errorTEHOverheatError==0){
       digitalWrite(PROTECTION_ON_PIN, HIGH);
-	}
-  }//for nest run time - relay will switch
+	  }
+  }//till next run time - relay will have time to switch
 }
 
 //////////////////////CAN commands///////////////////
@@ -491,10 +602,13 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   // Serial.println();
   // #endif
   switch(vPinNumber){
-    case VPIN_HEATER_TRGSTATUS:
+    case VPIN_HEATER_TRGSTATUS:{
+      int old_targetHeaterStatus=targetHeaterStatus;
       targetHeaterStatus = (int)vPinValueFloat;
       EEPROM_storeValues();
+      onChangeHeaterStatus(old_targetHeaterStatus);
       break;
+    }
     case VPIN_ClearTEHOverheatError:
       errorTEHOverheatError = 0;
       break;
@@ -527,7 +641,9 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
     case VPIN_TEHPower:  TEHPower  = vPinValueFloat; EEPROM_storeValues(); break;
     case VPIN_AirOutTargetTemp: AirOutTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
     case VPIN_SetTEHPID_Isum_Zero: TEHPID_Isum=0; break;
-
+    case VPIN_TEH_kPwr: kPwr2Air = vPinValueFloat; EEPROM_storeValues(); break;
+    case VPIN_TEH_kPwr_preMillisPerC: kPwr_preMillisPerC = vPinValueFloat; EEPROM_storeValues(); break;
+    
     default:
       #ifdef testmode
       Serial.print("! Warning: received unneeded CAN message: VPIN=");
@@ -543,6 +659,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 
 //////////////////////EEPROM/////////////////////////
 void EEPROM_storeValues(){
+  InsureSafeValues();
   return;
   EEPROM.put(eepromVIAddr,eepromValueIs);
   
@@ -555,9 +672,11 @@ void EEPROM_storeValues(){
   EEPROM.put(VPIN_TEHPID_Kp*sizeof(float),     TEHPID_Kp);
   EEPROM.put(VPIN_TEHPID_Ki*sizeof(float),     TEHPID_Ki);
   EEPROM.put(VPIN_TEHPID_Kd*sizeof(float),     TEHPID_Kd);
-  EEPROM.put(VPIN_TEHPower*sizeof(float),       TEHPower);
+  EEPROM.put(VPIN_TEHPower*sizeof(float),      TEHPower);
   EEPROM.put(VPIN_AirOutTargetTemp*sizeof(float), AirOutTargetTemp);
-
+  EEPROM.put(VPIN_TEH_kPwr*sizeof(float),   kPwr2Air);
+  EEPROM.put(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),   kPwr_preMillisPerC);
+  
   //EEPROM.put(VPIN_PIDSTATUS*sizeof(float),      TEHPIDSTATUS);
   //EEPROM.put(VPIN_VALVESTATUS*sizeof(float),    VALVESTATUS);
   
@@ -586,9 +705,12 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_TEHPID_Kd*sizeof(float),       TEHPID_Kd);
   EEPROM.get(VPIN_TEHPower*sizeof(float),       TEHPower);
   EEPROM.get(VPIN_AirOutTargetTemp*sizeof(float),   AirOutTargetTemp);
-
+  EEPROM.get(VPIN_TEH_kPwr*sizeof(float),       kPwr2Air);
+  EEPROM.get(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),       kPwr_preMillisPerC);
+  
   //EEPROM.get(VPIN_PIDSTATUS*sizeof(float),         TEHPIDSTATUS);
   //EEPROM.get(VPIN_VALVESTATUS*sizeof(float),       VALVESTATUS);
+  InsureSafeValues();
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
@@ -618,7 +740,7 @@ void setup(void) {
   //turn off relays:
   pinMode(ValveOpen_PIN,OUTPUT);
   pinMode(ValveClose_PIN,OUTPUT);
-  ValveClose(); //initial
+  //ValveClose(); //initial
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
