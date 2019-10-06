@@ -41,8 +41,8 @@ int PROTECTIONRELAYSTATUS=0; //to turn on this relay (with FAN and TEH on it: FA
 float TEHPower=0; //TEH power on time factor 0.0 .. 10.0 float
 int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
 int   TEHPowerPeriodSeconds=5; //period of PWM in sec
-long  TEHPeriodMillis=5000L; //period of PWM in millis
-long  TEHPWMCycleStart=0; //last cycle start
+unsigned long  TEHPeriodMillis=5000L; //period of PWM in millis
+unsigned long  TEHPWMCycleStart=0; //last cycle start
 float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
       TEHPID_Kp=6, TEHPID_Ki=1, TEHPID_Kd=40;
 float TEHPID_Isum=0, TEHPID_prevtempTEH=0;
@@ -69,6 +69,7 @@ float tempAirIn=0, humidityAirIn=NAN, tempTEH=0;
 float tempAirOut=20, offsetAirOut=0; //температура и калибровочное смещение(если знаю)
 int   ErrorTempAirIn=0,ErrorHumidityAirIn=0,
       ErrorTempTEH=0,ErrorTempAirOut=0;
+unsigned long millisLastReport=0; //not too often report in CommandCycle
 
 SimpleDHT22 dht_AirIn(TempIn_DHT_PIN);
 OneWire  TempDS_AirOut(TempOut_DS_PIN); 
@@ -106,7 +107,7 @@ void TEH_kPwr_Evaluation(){
       addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_ErrType, 101);
       return;
     }
-    long preheatMillis = (float)(kPwr_preMillisPerC) * (AirOutTargetTemp-tempAirOut);
+    unsigned long preheatMillis = (float)(kPwr_preMillisPerC) * (AirOutTargetTemp-tempAirOut);
     if(preheatMillis==0 //nothing to start
       || kPwr_lastPreheatStartMillis!=0 && millis()-kPwr_lastPreheatStartMillis < minpreheatRepeatPeriodMillis ){ //its too often
       addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEH_ErrType, 102);
@@ -195,7 +196,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
     return;
   }
 
-  long millisFromStart = millis()-TEHPWMCycleStart;
+  unsigned long millisFromStart = millis()-TEHPWMCycleStart;
     
   if( millisFromStart >= TEHPeriodMillis ){ //time to START:
     if( !ErrorTempTEH ){
@@ -210,7 +211,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
   }
 
   //evaluate millisOn (so to say, transformation of TEHPower):
-  long millisOn = (TEHPower/10*(float)TEHPeriodMillis); //sould be on in cycle
+  unsigned long millisOn = (TEHPower/10*(float)TEHPeriodMillis); //sould be on in cycle
   if(TEHPower<0.1f) millisOn = 0;
   else if(TEHPower>9.9f) millisOn = TEHPeriodMillis;
 
@@ -467,10 +468,14 @@ void CommandCycle_Event(){
   InsureSafeValues();
   //Serial.println(targetHeaterStatus);
   #ifdef testmode
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_PIN4READ, digitalRead(PROTECTION_READ_PIN));
+  if(millis()-millisLastReport > 2000L){
+    millisLastReport = millis();
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround((TEHPIDSTATUS>0 ? TEHPower : 0), 1));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_PIN4READ, digitalRead(PROTECTION_READ_PIN));
+  }
   #endif
 
   if(digitalRead(PROTECTION_READ_PIN)==LOW){
@@ -632,7 +637,7 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
       if(vPinValueFloat<1) 
         vPinValueFloat=1;
       TEHPowerPeriodSeconds = vPinValueFloat;
-      TEHPeriodMillis = (long)TEHPowerPeriodSeconds*1000L;
+      TEHPeriodMillis = (unsigned long)TEHPowerPeriodSeconds*1000L;
       EEPROM_storeValues();
       break;
     case VPIN_TEHPID_Kp: TEHPID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
