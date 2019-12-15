@@ -4,7 +4,7 @@
 #include <SimpleTimer.h>
 #include <mcp_can.h>
 #include <SPI.h>
-#include <QueueList.h>
+#include <QueueListFIXEDARRAY.h>
 #include <EEPROM.h>
 
 //#define testmode
@@ -31,12 +31,12 @@ unsigned char rxBuf[8];
 
 SimpleTimer timer;
 
-struct CANMessage{ long mesID; unsigned char vPinNumber; float vPinValueFloat; byte nTries; };
+struct CANMessage{ long mesID; unsigned char vPinNumber; byte isStr; float vPinValueFloat; String Str; byte nTries; };
 int timerIntervalForNextSendCAN=0;
 int CANQueueError=0; 
 #define CANQueueErrorOverflow 7777
 static int CANQueueMaxLength=20;
-QueueList <CANMessage*> CANQueue;
+QueueListFA <CANMessage> CANQueue;
 
 //only for ESP8166:
 //extern "C" {
@@ -44,13 +44,25 @@ QueueList <CANMessage*> CANQueue;
 //}
 
 ///////////////////////////////////////CAN//////////////////////////////////////////
-char sendVPinCAN(long mesID, unsigned char vPinNumber, float vPinValueFloat){ //transfer by CAN
+char sendVPinCAN(long mesID, unsigned char vPinNumber, byte isStr, float vPinValueFloat, String Str){ //transfer by CAN
+  byte sndStat=CAN_OK;
 
 	*rxBuf = vPinNumber;
-	*(float*)(rxBuf+1) = vPinValueFloat;
+  if(isStr==0){
+    *(float*)(rxBuf+1) = vPinValueFloat;
 
-	// send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
-	byte sndStat = CAN0.sendMsgBuf((0x100L | mesID), 0, 1+sizeof(float), rxBuf); //<<16
+    // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+    sndStat = CAN0.sendMsgBuf((0x100L | mesID), 0, 1+sizeof(float), rxBuf); //<<16
+
+  }else{ //filling buffer with string and sending(1-7 bytes):
+    byte i=0;
+    for(; i<Str.length() && i<8; i++)
+      *(char*)(rxBuf+1+i) = Str[i];
+
+    // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+    sndStat = CAN0.sendMsgBuf((0x100L | mesID), 0, 1+i, rxBuf); //<<16
+  }
+
 	if(sndStat == CAN_OK){
 		//Serial.println("Message Sent Successfully!");
     return sndStat;
@@ -73,7 +85,7 @@ void sendNextCANMessage(){
   }
 
   //queue is not empty:
-  CANMessage* mes = CANQueue.peek();
+  CANMessage *mes = CANQueue.peek();
   
   #ifdef testmodeCAN
   Serial.print("  >Sending queue#");
@@ -91,16 +103,16 @@ void sendNextCANMessage(){
   //Serial.print(system_get_free_heap_size());
   #endif
 
-  char res = sendVPinCAN( mes->mesID, mes->vPinNumber, mes->vPinValueFloat );
+  char res = sendVPinCAN( mes->mesID, mes->vPinNumber, mes->isStr, mes->vPinValueFloat, mes->Str);
 
   if(res == CAN_OK){
-    CANQueue.pop(); //drop this message
-    free(mes);
+    CANQueue.drop(); //drop this message
+    //free(mes);
   }else{ //sending error:
     mes->nTries++;
     if( mes->nTries > 20 ){
-      CANQueue.pop(); //drop this message
-      free(mes);
+      CANQueue.drop(); //drop this message
+      //free(mes);
       CANQueueError = res;
     }
   }
@@ -112,13 +124,13 @@ void sendNextCANMessage(){
   if( CANQueue.isEmpty() ){
     timerIntervalForNextSendCAN=0;
   }else{ //not empty - try again soon:
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //2 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //5 millis try interval
   }
 }
 
 //ADD /////////////////////////////////////////////////////////////////////////////////
 //addCANMessage2Queue(CAN_MSG_FILTER_STATIST | CAN_Unit_FILTER_ESPWF, VPIN_OutdoorTemp, tempOutdoor);
-void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFloat){
+void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFloat){  //older version - only float! 
   if(CANQueue.count()>=CANQueueMaxLength){
     CANQueueError = CANQueueErrorOverflow;
     #ifdef testmode
@@ -134,7 +146,31 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   Serial.print(" Value=");
   Serial.print(vPinValueFloat);
   #endif
-  CANQueue.push( new CANMessage{ mesID, vPinNumber, vPinValueFloat, 0} );
+  CANMessage mes=CANMessage{mesID, vPinNumber, 0, vPinValueFloat, "", 0};
+  CANQueue.push(&mes);
+  if(timerIntervalForNextSendCAN==0){
+    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //5 millis try interval
+  }
+}
+
+void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  //new version with char* and flag!
+  if(CANQueue.count()>=CANQueueMaxLength){
+    CANQueueError = CANQueueErrorOverflow;
+    #ifdef testmode
+    Serial.println("Can't add to queue: CAN queue overflow!");
+    #endif
+    return;
+  }
+  #ifdef testmodeCAN
+  Serial.print("   pushing: id=");
+  Serial.print(mesID);
+  Serial.print(" VPIN=");
+  Serial.print(vPinNumber);
+  Serial.print(" Value=");
+  Serial.print(vPinValueFloat);
+  #endif
+  CANMessage mes=CANMessage{mesID, vPinNumber, 1, 0, Str, 0};
+  CANQueue.push(&mes);
   if(timerIntervalForNextSendCAN==0){
     timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //5 millis try interval
   }
@@ -185,12 +221,16 @@ void checkReadCAN() {
   Serial.println();
   #endif
 
-  if(dataLen<5)
+  if(dataLen<2)
     return; //we need at least 5 bytes (1 = number of VPIN, 2-5 = float value (4 bytes))
   //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
   //vPinValue = *((float*)(rxBuf+1));
 
+  //if(*rxBuf==VPIN_BLYNK_TERMINAL){
+  //  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+  //}else{
   setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+  //}
 }
 
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat); 

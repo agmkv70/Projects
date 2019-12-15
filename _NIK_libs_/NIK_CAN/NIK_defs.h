@@ -80,7 +80,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_AirOutTemp    64
 #define VPIN_TEHMaxTemp    65
 #define VPIN_ClearTEHOverheatError  67
-#define VPIN_HEATER_TRGSTATUS       75     //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
+#define VPIN_HEATER_TRGSTATUS       93     //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
 #define VPIN_HEATER_TEHPIDSTATUS    76     //0 1 2 (off/on/error)
 #define VPIN_HEATER_VALVESTATUS     77     //0 1 (closed/opened), 2(opening), 3(closing)
 #define VPIN_HEATER_SetReadTempCycleInterval 78
@@ -95,3 +95,8 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_TEH_kPwr_preMillisPerC 86 //starting millis for full power preheat millis/*C
 #define VPIN_TEH_ErrType 87
 #define VPIN_TEH_kPwrPreheatON 88
+
+#define VPIN_HEATER_FREERAM          89 //send avr free ram to blynk
+#define VPIN_BLYNK_TERMINAL          90 //gets strings up to 8 bytes
+#define VPIN_HEATER_TRGSTATUS_OpCl   91 //0=open /1=close
+#define VPIN_HEATER_TRGSTATUS_HEAT   92 //0=off  /1=heat
