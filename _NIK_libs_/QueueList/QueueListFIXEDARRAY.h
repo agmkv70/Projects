@@ -45,6 +45,10 @@
 #ifndef _QUEUELISTFIXEDARRAY_H
 #define _QUEUELISTFIXEDARRAY_H
 
+#ifndef _MAX_FIXEDARRAY_DEFINED
+#define _MAX_FIXEDARRAY_DEFINED 20
+#endif
+
 // include Arduino basic header.
 #include <Arduino.h>
 
@@ -52,7 +56,7 @@
 template<typename T>
 class QueueListFA {
   public:
-    const static int MAX_FIXEDARRAY = 20;
+    const static int MAX_FIXEDARRAY = MAX_FIXEDARRAY_DEFINED;
     // init the queue (constructor).
     QueueListFA ();
 

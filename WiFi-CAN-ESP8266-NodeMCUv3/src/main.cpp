@@ -13,6 +13,7 @@
 #define CAN_PIN_INT 2   // Set INT to pin 2 (D4 on NodeMCU)
 #define CAN_PIN_CS 4    // Set CS to pin 4 (D2 on NodeMCU)
 
+#define _MAX_FIXEDARRAY_DEFINED 50 //default=20
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
