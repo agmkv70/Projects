@@ -35,7 +35,7 @@ struct CANMessage{ long mesID; unsigned char vPinNumber; byte isStr; float vPinV
 int timerIntervalForNextSendCAN=0;
 int CANQueueError=0; 
 #define CANQueueErrorOverflow 7777
-static int CANQueueMaxLength=20;
+static int CANQueueMaxLength=_MAX_FIXEDARRAY_DEFINED;//default 20, 50 for wifi
 QueueListFA <CANMessage> CANQueue;
 
 //only for ESP8166:

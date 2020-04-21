@@ -110,7 +110,8 @@ BLYNK_WRITE_DEFAULT() {
 // This function will run every time Blynk connection is established
 BLYNK_CONNECTED() {
   //get data stored in virtual pin V0 from server. Server will push these pins and BLYNK_WRITE will be 
-  Blynk.syncVirtual(VPIN_STATUS,
+  Blynk.syncVirtual(VPIN_BoilerTargetTemp,
+                    VPIN_STATUS,
                     VPIN_PIDSTATUS,
                     VPIN_VALVESTATUS,
                     VPIN_ManualFloorIn,
@@ -129,9 +130,9 @@ BLYNK_CONNECTED() {
                     VPIN_LEDSetPWMch3,
                     VPIN_LEDSetPWMch4
                    );
-  if(VPIN_PIDSTATUS!=2){ //2==(Home,autoBoilTrg)
-    Blynk.syncVirtual(VPIN_BoilerTargetTemp); //because in this case it is evaluated automatically and we mustn't bother it on conn/disconn
-  }
+  //if(VPIN_PIDSTATUS!=2){ //2==(Home,autoBoilTrg)
+  //  Blynk.syncVirtual(VPIN_BoilerTargetTemp); //because in this case it is evaluated automatically and we mustn't bother it on conn/disconn
+  //}
 }
 
 #ifdef MQTT_On

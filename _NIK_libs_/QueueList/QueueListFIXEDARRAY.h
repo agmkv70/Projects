@@ -56,7 +56,7 @@
 template<typename T>
 class QueueListFA {
   public:
-    const static int MAX_FIXEDARRAY = MAX_FIXEDARRAY_DEFINED;
+    const static int MAX_FIXEDARRAY = _MAX_FIXEDARRAY_DEFINED;
     // init the queue (constructor).
     QueueListFA ();
 
