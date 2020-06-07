@@ -70,13 +70,6 @@ int ErrorTempBoiler=0,ErrorTempFloorIn=0,ErrorTempFloorOut=0,ErrorTempHome=0;
 
 int mainTimerId, boilerPWMTimerId;
 
-float fround(float r, byte dec){
-	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
-	r=(long)(r+0.5);
-	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
-	return r;
-}
-
 void HomePIDEvaluation(){
 	float delta = HomeTargetTemp - tempHome;
 	

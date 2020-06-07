@@ -4,7 +4,7 @@
 //#define testmode
 //#define testmodeCAN
 //#define MQTT_On
-//#define LocalBlynk_On
+#define LocalBlynk_On
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
