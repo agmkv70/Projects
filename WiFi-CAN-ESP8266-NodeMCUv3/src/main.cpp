@@ -222,7 +222,7 @@ void setup(){
   #endif
 
   // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT
     ;//Serial.println("MCP2515 Initialized Successfully!");
   else
     Serial.println("Error Initializing MCP2515!..");

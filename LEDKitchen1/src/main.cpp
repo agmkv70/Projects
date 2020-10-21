@@ -23,12 +23,12 @@ int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got 
 
 int MainCycleInterval=300, PWMch1=0, PWMch2=0, PWMch3=0, PWMch4=0;
 
-float fround(float r, byte dec){
-	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
-	r=(long)(r+0.5);
-	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
-	return r;
-}
+//float fround(float r, byte dec){
+//	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
+//	r=(long)(r+0.5);
+//	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
+//	return r;
+//}
 
 void Cycle_measure12v(){
   float avolt = ((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
@@ -197,8 +197,8 @@ void setup() {
   analogWrite(PWMpin4,PWMch4);
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
-  //if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  //if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
