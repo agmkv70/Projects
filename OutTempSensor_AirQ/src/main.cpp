@@ -73,13 +73,13 @@ void loop(){
         Serial.print(Humidity); 
         Serial.print(" ,Pressure:"); 
         Serial.print(Pressure);     
-        Serial.print("  ,IAQ:");
-        Serial.print(IAQ); 
         Serial.print(" ,Gas:"); 
         Serial.print(Gas ); 
         Serial.print("  ,Altitude:"); 
         Serial.print(Altitude);                       
-        Serial.print("  ,IAQ_accuracy:"); 
+        Serial.print("  ,IAQ:");
+        Serial.print(IAQ); 
+        Serial.print("  ,IAQ_accuracy:"); //0-starting; 1-too stable env; 2-(re)calibrating; 3-working
         Serial.println(IAQ_accuracy);  
       }            
       delay(1000);           
