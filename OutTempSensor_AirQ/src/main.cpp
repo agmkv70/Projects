@@ -2,13 +2,13 @@
 
 #include <Arduino.h>
 #include <SoftwareSerial.h>
-SoftwareSerial mySerial(4, 5);
+SoftwareSerial mySerial(6, 5); //2 digital pins
 uint16_t temp1=0;
 int16_t temp2=0;
 
 unsigned char Re_buf[30],counter=0;
 unsigned char sign=0;
-int led = 13;
+static int LED = 13;
 
 void setup()
 {
@@ -58,6 +58,7 @@ void loop(){
       for(i=0;i<19;i++)
         sum+=Re_buf[i]; 
       if(sum==Re_buf[i] ){
+        digitalWrite(LED, HIGH);
         temp2=(Re_buf[4]<<8|Re_buf[5]);   
         Temperature=(float)temp2/100;
         temp1=(Re_buf[6]<<8|Re_buf[7]);
@@ -67,6 +68,8 @@ void loop(){
         IAQ=((Re_buf[11]&0x0F)<<8)|Re_buf[12];
         Gas=((uint32_t)Re_buf[13]<<24)|((uint32_t)Re_buf[14]<<16)|((uint16_t)Re_buf[15]<<8)|Re_buf[16];
         Altitude=(Re_buf[17]<<8)|Re_buf[18]; 
+
+        //Temperature:26.54 ,Humidity:39.26 ,Pressure:100574 ,Gas:28312  ,Altitude:62  ,IAQ:25  ,IAQ_accuracy:0
         Serial.print("Temperature:");
         Serial.print(Temperature); 
         Serial.print(" ,Humidity:"); 
@@ -80,9 +83,12 @@ void loop(){
         Serial.print("  ,IAQ:");
         Serial.print(IAQ); 
         Serial.print("  ,IAQ_accuracy:"); //0-starting; 1-too stable env; 2-(re)calibrating; 3-working
-        Serial.println(IAQ_accuracy);  
+        Serial.println(IAQ_accuracy);
+
+        delay(100); //for LED
+        digitalWrite(LED, LOW);
       }            
-      delay(1000);           
+      delay(10000);           
     }
   } 
 } 
