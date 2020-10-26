@@ -415,7 +415,7 @@
 
 #define CANUSELOOP 0
 
-#define CANSENDTIMEOUT (200)                                            /* milliseconds                 */
+#define CANSENDTIMEOUT (100) //_nik: was 200                                           /* milliseconds                 */
 
 /*
  *   initial value of gCANAutoProcess

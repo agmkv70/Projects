@@ -16,6 +16,9 @@ MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
 unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
+#define CAN_NEXT_TRY_INTERVAL 3
+#define CAN_MAX_SEND_TRIES 5
+
 //filter message types:
 #define CAN_MSG_MASK           0xF0L
 #define CAN_MSG_FILTER_UNITCMD 0x80L  //command for special unit
@@ -34,6 +37,7 @@ SimpleTimer timer;
 struct CANMessage{ long mesID; unsigned char vPinNumber; byte isStr; float vPinValueFloat; String Str; byte nTries; };
 int timerIntervalForNextSendCAN=0;
 int CANQueueError=0; 
+int CANQueueStop=0; //try stopping while adding values in series, then run sending
 #define CANQueueErrorOverflow 7777
 static int CANQueueMaxLength=_MAX_FIXEDARRAY_DEFINED;//default 20, 50 for wifi
 QueueListFA <CANMessage> CANQueue;
@@ -83,6 +87,9 @@ void sendNextCANMessage(){
     timerIntervalForNextSendCAN=0;
     return; //nothing to send is also good
   }
+  if(CANQueueStop){
+    timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage ); //5 millis try interval
+  }
 
   //queue is not empty:
   CANMessage *mes = CANQueue.peek();
@@ -110,7 +117,7 @@ void sendNextCANMessage(){
     //free(mes);
   }else{ //sending error:
     mes->nTries++;
-    if( mes->nTries > 20 ){
+    if( mes->nTries > CAN_MAX_SEND_TRIES ){
       CANQueue.drop(); //drop this message
       //free(mes);
       CANQueueError = res;
@@ -124,7 +131,7 @@ void sendNextCANMessage(){
   if( CANQueue.isEmpty() ){
     timerIntervalForNextSendCAN=0;
   }else{ //not empty - try again soon:
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage ); //5 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage ); //5 millis try interval
   }
 }
 
@@ -149,7 +156,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   CANMessage mes=CANMessage{mesID, vPinNumber, 0, vPinValueFloat, "", 0};
   CANQueue.push(&mes);
   if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //5 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
   }
 }
 
@@ -172,7 +179,7 @@ void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  
   CANMessage mes=CANMessage{mesID, vPinNumber, 1, 0, Str, 0};
   CANQueue.push(&mes);
   if(timerIntervalForNextSendCAN==0){
-    timerIntervalForNextSendCAN = timer.setTimeout( 5, sendNextCANMessage); //5 millis try interval
+    timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
   }
 }
 

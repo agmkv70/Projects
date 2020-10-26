@@ -101,3 +101,11 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_HEATER_TRGSTATUS_OpCl   91 //0=open /1=close
 #define VPIN_HEATER_TRGSTATUS_HEAT   92 //0=off  /1=heat
 #define VPIN_HEATER_TRGSTATUS        93     //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
+
+#define VPIN_OutdoorAirQ_Temperature  94
+#define VPIN_OutdoorAirQ_Humidity     95
+#define VPIN_OutdoorAirQ_Pressure     96
+#define VPIN_OutdoorAirQ_Gas          97
+//#define VPIN_OutdoorAirQ_Altitude
+#define VPIN_OutdoorAirQ_IAQ          98
+#define VPIN_OutdoorAirQ_IAQ_accuracy 99 //0-starting; 1-too stable env; 2-(re)calibrating; 3-working
