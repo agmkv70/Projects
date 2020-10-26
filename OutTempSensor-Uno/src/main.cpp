@@ -165,9 +165,9 @@ char isValidSeries3(float v1,float v2,float v3,float dev){ //v3 difference is no
 }
 
 /////////////////////////////////AirQuality functions:
-void TurnOffLED(){
+/*void TurnOffLED(){
   digitalWrite(LED_PIN, LOW);
-}
+}*/
 
 void SendAirQInfo(){
   float Temperature,Humidity;
@@ -187,8 +187,8 @@ void SendAirQInfo(){
       }
       if(sum==AirQRead_buf[i] ){ //checksum
         //here we have full buffer with consistent message - extract and send to CAN bus:
-        digitalWrite(LED_PIN, LOW); //show sending AirQ
-        timer.setTimeout(100, TurnOffLED);
+        //digitalWrite(LED_PIN, LOW); //show sending AirQ
+        //timer.setTimeout(100, TurnOffLED);
         
         int16_t temp2=(AirQRead_buf[4]<<8|AirQRead_buf[5]);   
         Temperature=(float)temp2/100;
@@ -299,8 +299,8 @@ void setup(void) {
   //EEPROM_restoreValues();
   //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
     
-  pinMode(LED_PIN,OUTPUT);
-  digitalWrite(LED_PIN,LOW); //turn off LED
+  //pinMode(LED_PIN,OUTPUT);
+  //digitalWrite(LED_PIN,LOW); //turn off LED
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
