@@ -16,7 +16,7 @@ MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
 unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
-#define CAN_NEXT_TRY_INTERVAL 5
+#define CAN_NEXT_TRY_INTERVAL 50
 #define CAN_MAX_SEND_TRIES 5
 
 //filter message types:
@@ -89,6 +89,7 @@ void sendNextCANMessage(){
   }
   if(CANQueueStop){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage ); //5 millis try interval
+    return;
   }
 
   //queue is not empty:
@@ -141,7 +142,8 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   if(CANQueue.count()>=CANQueueMaxLength){
     CANQueueError = CANQueueErrorOverflow;
     #ifdef testmode
-    Serial.println("Can't add to queue: CAN queue overflow!");
+    Serial.print("Can't add to queue: CAN queue overflow! on vPin=");
+    Serial.print(vPinNumber);
     #endif
     return;
   }
@@ -166,7 +168,8 @@ void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  
   if(CANQueue.count()>=CANQueueMaxLength){
     CANQueueError = CANQueueErrorOverflow;
     #ifdef testmode
-    Serial.println("Can't add to queue: CAN queue overflow!");
+    Serial.print("Can't add to queue(str): CAN queue overflow! on vPin=");
+    Serial.print(vPinNumber);
     #endif
     return;
   }

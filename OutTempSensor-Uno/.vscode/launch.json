@@ -13,6 +13,7 @@
             "request": "launch",
             "name": "PIO Debug",
             "executable": "c:/Users/User/Documents/PlatformIO/Projects/OutTempSensor-Uno/.pio/build/uno/firmware.elf",
+            "projectEnvName": "uno",
             "toolchainBinDir": "C:/Users/User/.platformio/packages/toolchain-atmelavr/bin",
             "preLaunchTask": {
                 "type": "PlatformIO",
@@ -25,6 +26,7 @@
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
             "executable": "c:/Users/User/Documents/PlatformIO/Projects/OutTempSensor-Uno/.pio/build/uno/firmware.elf",
+            "projectEnvName": "uno",
             "toolchainBinDir": "C:/Users/User/.platformio/packages/toolchain-atmelavr/bin",
             "internalConsoleOptions": "openOnSessionStart"
         }

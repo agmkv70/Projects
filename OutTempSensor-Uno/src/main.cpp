@@ -24,7 +24,7 @@ float Gas1=0,Gas2=0;
 float Pressure1=0,Pressure2=0;
 uint16_t IAQ1=0,IAQ2=0;
 
-int eepromVIAddr=1000,eepromValueIs=7890+3; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7890+4; //if this is in eeprom, then we got valid values, not junk
 int MainCycleInterval=30; //5 это тестирование датчиков, а ставим не чаще 60
 float tempOutdoor=0;
 float tempOutdoor_calibrationOffset=0.5;
@@ -157,7 +157,7 @@ char isValidSeries3(float v1,float v2,float v3,float dev){ //v3 difference is no
   if(-dev<=dif && dif<=dev){
     return 1;
   }
-  dif = v2-v1;
+  dif = v3-v2;
   if(-dev<=dif && dif<=dev){
     return 2;
   }
@@ -204,11 +204,11 @@ void SendAirQInfo(){
         if(isValidSeries3(Temperature1,Temperature2,Temperature,1) && Temperature>=-50 && Temperature<=60){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Temperature, fround(Temperature,1));
         }
-        if(isValidSeries3(Humidity1,Humidity2,Humidity,3) && Humidity>=0 && Humidity<=100){
-          addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Humidity, fround(Humidity,0));
+        if(isValidSeries3(Humidity1,Humidity2,Humidity,10) && Humidity>=0 && Humidity<=100){
+          addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Humidity, Humidity);
         }
         float dPressure = (float)Pressure/1000.0f; //kPa: 100kPa = 10^5 Pa
-        if(isValidSeries3(Pressure1,Pressure2,dPressure,0.5) && dPressure>=80 && dPressure<=120){
+        if(isValidSeries3(Pressure1,Pressure2,dPressure,5) && dPressure>=80 && dPressure<=120){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Pressure, dPressure);
         }
         float dGas = (float)Gas/1000.0f;
@@ -222,6 +222,7 @@ void SendAirQInfo(){
         if(IAQ_accuracy>=0 && IAQ_accuracy<=3){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_IAQ_accuracy, IAQ_accuracy);
         }
+        
         CANQueueStop=0;
 
         Temperature1=Temperature2;
@@ -245,7 +246,11 @@ void SendAirQInfo(){
         */
       }            
     }
-  } 
+  }
+  
+  // test !!! :
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, 100, CANQueue.count());
+   
 }
 
 void AirQCheckSerialAndSend(){
