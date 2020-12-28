@@ -87,7 +87,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_HEATER_TEHERROR        79
 //#define VPIN_HEATER_ERR_TEHOVERHEAT    80
 #define VPIN_TEHTargetTemp          81
-#define VPIN_TEHTargetTempGraph     82
+#define VPIN_TEHPower_PIDCorrection     82 //был граф TEHTargetTemp, но не использовался
 #define VPIN_TEH_KdTempAirIn         83 //coef
 #define VPIN_HEATER_PIN4READ        84
 

@@ -16,7 +16,7 @@ MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
 unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
-#define CAN_NEXT_TRY_INTERVAL 3
+#define CAN_NEXT_TRY_INTERVAL 5
 #define CAN_MAX_SEND_TRIES 5
 
 //filter message types:
@@ -145,6 +145,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
     #endif
     return;
   }
+  CANQueueStop=1;
   #ifdef testmodeCAN
   Serial.print("   pushing: id=");
   Serial.print(mesID);
@@ -158,6 +159,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   if(timerIntervalForNextSendCAN==0){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
   }
+  CANQueueStop=0;
 }
 
 void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  //new version with char* and flag!
@@ -168,6 +170,7 @@ void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  
     #endif
     return;
   }
+  CANQueueStop=1;
   #ifdef testmodeCAN
   Serial.print("   pushing: id=");
   Serial.print(mesID);
@@ -181,6 +184,7 @@ void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  
   if(timerIntervalForNextSendCAN==0){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
   }
+  CANQueueStop=0;
 }
 
 //////////////////////////////////////////////////////////////////MAIN cycle:

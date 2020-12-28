@@ -40,22 +40,22 @@ int PROTECTIONRELAYSTATUS=0; //to turn on this relay (with FAN and TEH on it: FA
     
 
 
-float TEHPower=0; //TEH power on time factor 0.0 .. 10.0 float
+float TEHPower=0,TEHPower_PIDCorrection=0; //TEH power on time factor 0.0 .. 10.0 float
 int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
 static int   TEHPowerPeriodSeconds=5; //period of PWM in sec
 static unsigned long  TEHPeriodMillis=2000L; //period of PWM in millis
 unsigned long  TEHPWMCycleStart=0; //last cycle start
 float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
-      TEHPID_Kp=6, TEHPID_Ki=1, TEHPID_Kd=40;
-float TEHPID_Isum=0, TEHPID_prevtempTEH=0;
+      TEHPID_Kp=5, TEHPID_Ki=1, TEHPID_Kd=7;
+float TEHPID_Isum=0, TEHPID_prevtempTEH=0, TEHPID_prevtempAirOut=0;
 
 float KdT_TEH=2, minKdT_TEH=1, maxKdT_TEH=10; //coef: TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn)
-float kPwr2Air=0.3; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
-float kPwr_preMillisPerC=0; //kPwr mode: full power preheat millis/*C
+float kPwr2Air=0.24; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
+float kPwr_preMillisPerC=3000; //kPwr mode: full power preheat millis/*C
 int kPwr_preheatStart=0,kPwr_PreheatIsOn=0; //kPwr mode: flag to start preheating
 unsigned long kPwr_lastPreheatStartMillis=0, minpreheatRepeatPeriodMillis=5*60*1000L, StopPreheatTimerId=-1; //remember for not to preheat too often
 
-float AirOutTargetTemp=21;
+float AirOutTargetTemp=20;
 static float AirOutTargetTemp_MIN=15;
 static float AirOutTargetTemp_MAX=28;//30-test, 24-real
 float TEHTargetTemp=40;
@@ -82,7 +82,7 @@ int ReadTempCycleInterval=5; //часто - отадка 10 сек
 #ifndef testmode
 int ReadTempCycleInterval=5; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7730+4; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+5; //if this is in eeprom, then we got valid values, not junk
 
 int readTempTimerId=-1, TEHPWMTimerId=-1, KTCtimerId=-1, commandTimerId=-1;
 
@@ -138,19 +138,22 @@ void TEH_kPwr_Evaluation(){
 }
 
 ///////////////////////////////////TEH PID//////////////////////////////
-void TEHPIDEvaluation(){
-  TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn);
-  float delta = TEHTargetTemp - tempTEH;
-  if(TEHPID_prevtempTEH==0)
-    TEHPID_prevtempTEH = tempTEH; //init TEHPID_prevtempTEH
-  //Serial.print("PID delta=");
-  //Serial.println(delta);
+void TEHPIDCorrectionEvaluation(){ //calc TEHPower_PIDCorrection  - в пределах +-3
+  if(kPwr_PreheatIsOn==1){
+    TEHPower_PIDCorrection=0;
+    return;
+  }
+
+  float delta = (AirOutTargetTemp - tempAirOut)*TEHPID_KCoef;
+  
+  if(TEHPID_prevtempAirOut==0)
+    TEHPID_prevtempAirOut = tempAirOut; //init TEHPID_prevtempTEH
     
   //sum Integral part of PID only if our result is not saturated:
-  if(TEHPower<=0 && delta<0)
+  if(TEHPower+TEHPower_PIDCorrection<=0 && delta<0)
     ; //don't go too far down
   else{ 
-    if(TEHPower>=10 && delta>0)
+    if(TEHPower+TEHPower_PIDCorrection>=10 && delta>0)
       TEHPID_Isum = 0; //don't go too far up & fallback Isum (not to become too hot)
     else
       TEHPID_Isum = TEHPID_Isum + delta;
@@ -161,31 +164,38 @@ void TEHPIDEvaluation(){
     TEHPID_Isum=0;
   }
   //restrict Isum:
-  if(TEHPID_Isum<-10){
-    TEHPID_Isum=-10;
-  }else if(TEHPID_Isum>10){
-    TEHPID_Isum=10;
+  if(TEHPID_Isum<-2){
+    TEHPID_Isum=-2;
+  }else if(TEHPID_Isum>2){
+    TEHPID_Isum=2;
   }
   
-  float P = (TEHPID_Kp * TEHPID_KCoef) * delta;
-  float I = (TEHPID_Ki * TEHPID_KCoef) * TEHPID_Isum;
-  float D = (TEHPID_Kd * TEHPID_KCoef) * (TEHPID_prevtempTEH - tempTEH); //new D calculation (absolute) - stable when target changes
-  TEHPID_prevtempTEH = tempTEH;
+  float P = TEHPID_Kp * delta;
+  float I = TEHPID_Ki * TEHPID_Isum;
+  float D = TEHPID_Kd * ((TEHPID_prevtempAirOut - tempAirOut)*TEHPID_KCoef); //new D calculation (absolute) - stable when target changes
+  TEHPID_prevtempAirOut = tempAirOut;
 
-  TEHPower = TEHPower + P + I + D;
+  TEHPower_PIDCorrection = TEHPower_PIDCorrection + P + I + D;
   
-  if(TEHPower<0){
-    TEHPower=0;
-  }else if(TEHPower>10){
-    TEHPower=10;
+  if(TEHPower_PIDCorrection<-3){
+    TEHPID_Isum = 0;
+    TEHPower_PIDCorrection=-3;
+  }else if(TEHPower_PIDCorrection>3){
+    TEHPID_Isum = 0;
+    TEHPower_PIDCorrection=3;
+  }
+  if(TEHPower+TEHPower_PIDCorrection<0){
+    TEHPower_PIDCorrection = TEHPower_PIDCorrection - (TEHPower+TEHPower_PIDCorrection);
+  }else if(TEHPower+TEHPower_PIDCorrection>10){
+    TEHPower_PIDCorrection = TEHPower_PIDCorrection - (TEHPower+TEHPower_PIDCorrection-10);
   }
   
   //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_P, fround(P,2));
   //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(I,2));
   //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower+TEHPower_PIDCorrection,1));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower_PIDCorrection, fround(TEHPower_PIDCorrection,1));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTemp, fround(AirOutTargetTemp,1));
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHTargetTempGraph, fround(TEHTargetTemp,1));
 }
 
 void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
@@ -202,10 +212,15 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
     
   if( millisFromStart >= TEHPeriodMillis ){ //time to START:
     if( !ErrorTempTEH ){
+
       if( TEHPIDSTATUS==1 ){
-        TEHPIDEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
+        TEH_kPwr_Evaluation();
+        //calc correction to kPwr:
+        TEHPIDCorrectionEvaluation(); //once: on TEH pwm cycle start and only if temperature is really read
+
       }else if( TEHPIDSTATUS==2 ){
         TEH_kPwr_Evaluation();
+        TEHPower_PIDCorrection=0;
       }
     }
     TEHPWMCycleStart = millis();
@@ -213,9 +228,9 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
   }
 
   //evaluate millisOn (so to say, transformation of TEHPower):
-  unsigned long millisOn = (TEHPower/10*(float)TEHPeriodMillis); //sould be on in cycle
-  if(TEHPower<0.1f) millisOn = 0;
-  else if(TEHPower>9.9f) millisOn = TEHPeriodMillis;
+  unsigned long millisOn = ((TEHPower+TEHPower_PIDCorrection)/10*(float)TEHPeriodMillis); //sould be on in cycle
+  if((TEHPower+TEHPower_PIDCorrection)<0.1f) millisOn = 0;
+  else if((TEHPower+TEHPower_PIDCorrection)>9.9f) millisOn = TEHPeriodMillis;
 
   if(TEHPowerCurrentStateOnOff==0){ //we are off - we can only turn on:
     if( millisFromStart < millisOn ){ //time to START:
@@ -483,14 +498,14 @@ void CommandCycle_Event(){
   InsureSafeValues();
   //Serial.println(targetHeaterStatus);
   //#ifdef testmode
-  if(millis()-millisLastReport > 5000L){
+  if(millis()-millisLastReport > 10000L){
     millisLastReport = millis();
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround((TEHPIDSTATUS>0 ? TEHPower : 0), 1));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
     //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_PIN4READ, digitalRead(PROTECTION_READ_PIN));
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_FREERAM, fround(freeRAM(),0));
+    //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_FREERAM, fround(freeRAM(),0));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL, fround(millis()/1000,0));
   }
   //#endif
@@ -527,7 +542,7 @@ void CommandCycle_Event(){
           VALVESTATUS=3; //closing
           valveCloseTimerId = timer.setTimeout(20*1000L, ValveClose);
         }else{//read KTC and decide weather TEH is cooled enough:
-          if(tempTEH!=NAN && tempTEH>45){
+          if(tempTEH!=NAN && tempTEH>50){
             //if(valveCloseTimerId !=0 ){//no error now, clear scheduled closing:
             //  timer.deleteTimer(valveCloseTimerId);
             //}
@@ -542,7 +557,7 @@ void CommandCycle_Event(){
     case 2: //opened+off
       TEHPIDSTATUS=0; //turn off TEH
       if(VALVESTATUS==1 || VALVESTATUS==2){ //1 opened,2 opening
-        if(tempTEH!=NAN && tempTEH>45){
+        if(tempTEH!=NAN && tempTEH>50){
           ;//its too hot - just wait
         }else{ //now its cold:
           PROTECTIONRELAYSTATUS=0; //turn off FAN
@@ -738,6 +753,7 @@ void EEPROM_restoreValues(){
 
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
+  delay(1000);
   boardSTATUS = Status_Manual; //init
   EEPROM_restoreValues();
 
@@ -772,7 +788,7 @@ void setup(void) {
   ValveClose(); //initial closing
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
@@ -785,6 +801,9 @@ void setup(void) {
   // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;      //0x0F  0x010F0000;
   // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;  //0x04  0x01040000;
   // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;  //0x04  0x01040000;
+  //receive 0x100 messages:
+  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
   // CAN0.init_Mask(0,0,mask);                // Init first mask...
   // CAN0.init_Filt(0,0,filt0);                // Init first filter...
   // #ifdef testmode

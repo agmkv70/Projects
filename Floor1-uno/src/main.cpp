@@ -497,7 +497,7 @@ void setup(void) {
   ValveStop(); //initial
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
@@ -510,6 +510,9 @@ void setup(void) {
   // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
   // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
   // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
+  //receive 0x100 messages:
+  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
   // CAN0.init_Mask(0,0,mask);                // Init first mask...
   // CAN0.init_Filt(0,0,filt0);                // Init first filter...
   // #ifdef testmode

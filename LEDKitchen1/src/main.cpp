@@ -207,6 +207,10 @@ void setup() {
 		#endif
 	}
 
+  //receive 0x100 messages:
+  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
+   
   #ifdef testmode
 	CAN0.setMode(MCP_LOOPBACK);
 	#endif

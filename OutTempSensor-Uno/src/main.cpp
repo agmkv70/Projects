@@ -207,11 +207,11 @@ void SendAirQInfo(){
         if(isValidSeries3(Humidity1,Humidity2,Humidity,3) && Humidity>=0 && Humidity<=100){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Humidity, fround(Humidity,0));
         }
-        float dPressure = Pressure/1000; //kPa: 100kPa = 10^5 Pa
-        if(isValidSeries3(Pressure1,Pressure2,dPressure,0.05) && dPressure>=80 && dPressure<=120){
+        float dPressure = (float)Pressure/1000.0f; //kPa: 100kPa = 10^5 Pa
+        if(isValidSeries3(Pressure1,Pressure2,dPressure,0.5) && dPressure>=80 && dPressure<=120){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Pressure, dPressure);
         }
-        float dGas=Gas/1000;
+        float dGas = (float)Gas/1000.0f;
         if(isValidSeries3(Gas1,Gas2,dGas,5) && dGas>=0 && dGas<=300){
           addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_OutdoorAirQ_Gas, fround(dGas,1));
         }
@@ -303,7 +303,8 @@ void setup(void) {
   //digitalWrite(LED_PIN,LOW); //turn off LED
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
+  //if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else{
     #ifdef testmode
@@ -312,20 +313,19 @@ void setup(void) {
   }
   
   //initialize filters Masks(0-1),Filters(0-5):
-  //unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
-  //unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
-  //unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
-  //CAN0.init_Mask(0,0,mask);                // Init first mask...
-  //CAN0.init_Filt(0,0,filt0);                // Init first filter...
+  unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
+  unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
+  unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_OUTDT | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
+  //CAN0.init_Mask(0,0,0x01FF0000);
+  //CAN0.init_Filt(0,0,0x01000000);
+  CAN0.init_Mask(0,0,mask);                // Init first mask...
+  CAN0.init_Filt(0,0,filt0);                // Init first filter...
   //#ifdef testmode
-  //CAN0.init_Filt(1,0,filt1);                // Init second filter...
+  CAN0.init_Filt(1,0,filt1);                // Init second filter...
   //#endif
-  //CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
-  //CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
-  //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
-  //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
-  //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
-
+  //CAN0.init_Mask(1,1,0x01FFFFFF);                // Init second mask...
+  //CAN0.init_Filt(2,1,0x01FFFFFF);                // Init third filter...
+  
   CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data.
   #ifdef testmode
   CAN0.setMode(MCP_LOOPBACK);
