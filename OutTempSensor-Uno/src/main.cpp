@@ -189,6 +189,7 @@ void SendAirQInfo(){
         //here we have full buffer with consistent message - extract and send to CAN bus:
         //digitalWrite(LED_PIN, LOW); //show sending AirQ
         //timer.setTimeout(100, TurnOffLED);
+        AirQReadBufAndSendFlag=0;
         
         int16_t temp2=(AirQRead_buf[4]<<8|AirQRead_buf[5]);   
         Temperature=(float)temp2/100;
@@ -273,7 +274,7 @@ void AirQCheckSerialAndSend(){
   if(AirQMesAvailFlag){
     SendAirQInfo();
     //AirQMesAvailFlag=0; //its done inside
-    AirQReadBufAndSendFlag=0;
+    //AirQReadBufAndSendFlag=0;
   }
 }
 
@@ -289,10 +290,29 @@ void MainCycle_StartEvent(){
 	Serial.println("Start coversion... ");
   #endif
 
-  AirQReadBufAndSendFlag=1; //have to listen to softSerial and send one first message we've read
+  AirQReadBufAndSendFlag++; //have to listen to softSerial and send one first message we've read
 
 	timer.setTimeout(1000L, MainCycle_ReadTempEvent); //start once after timeout
 }
+
+void reConnectSTMBME680(){
+  AirQReadBufAndSendFlag=0;
+  //////////////////////AirQ communication <->STM<->BME680 :
+  AirQSerial.end();
+  AirQSerial.begin(9600); //9600 is programmed into STM
+  AirQSerial.listen();  
+  delay(4000);    
+  AirQSerial.write(0XA5); 
+  AirQSerial.write(0X55);    
+  AirQSerial.write(0X3F);    
+  AirQSerial.write(0X39); 
+  delay(100); 
+  AirQSerial.write(0XA5); 
+  AirQSerial.write(0X56);    
+  AirQSerial.write(0X02);    
+  AirQSerial.write(0XFD);
+}
+
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
   delay(500);
@@ -337,21 +357,11 @@ void setup(void) {
   #endif
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
-  //////////////////////AirQ communication <->STM<->BME680 :
-  AirQSerial.begin(9600); //9600 is programmed into STM
-  AirQSerial.listen();  
-  delay(4000);    
-  AirQSerial.write(0XA5); 
-  AirQSerial.write(0X55);    
-  AirQSerial.write(0X3F);    
-  AirQSerial.write(0X39); 
-  delay(100); 
-  AirQSerial.write(0XA5); 
-  AirQSerial.write(0X56);    
-  AirQSerial.write(0X02);    
-  AirQSerial.write(0XFD);
+  reConnectSTMBME680();
+  //timer.setInterval(1000L*3600L*24L, reConnectSTMBME680); // re/connect once a day
 
-  mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+  mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); // start regularly
+
 }
 
 ////////////////////////////////////////////////LOOP////////////////////////////
@@ -361,6 +371,9 @@ void loop(void) {
 
   if(AirQReadBufAndSendFlag){
     AirQCheckSerialAndSend();
+  }
+  if(AirQReadBufAndSendFlag>1){
+    reConnectSTMBME680();
   }
 }
 
