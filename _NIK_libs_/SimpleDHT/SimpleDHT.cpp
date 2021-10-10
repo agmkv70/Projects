@@ -31,7 +31,24 @@ SimpleDHT::SimpleDHT(int pin) {
     setPin(pin);
 }
 
-int SimpleDHT::read(byte* ptemperature, byte* phumidity, byte pdata[40]) {
+void SimpleDHT::setPin(int pin) {
+    this->pin = pin;
+#ifdef __AVR
+    // (only AVR) - set low level properties for configured pin
+    bitmask = digitalPinToBitMask(pin);
+    port = digitalPinToPort(pin);
+#endif
+}
+
+int SimpleDHT::setPinInputMode(uint8_t mode) {
+    if (mode != INPUT && mode != INPUT_PULLUP) {
+        return SimpleDHTErrPinMode;
+    }
+    this->pinInputMode = mode;
+    return SimpleDHTErrSuccess;
+}
+
+int SimpleDHT::read(byte* ptemperature, byte* phumidity, byte pdata[5]) {
     int ret = SimpleDHTErrSuccess;
 
     if (pin == -1) {
@@ -45,28 +62,19 @@ int SimpleDHT::read(byte* ptemperature, byte* phumidity, byte pdata[40]) {
     }
 
     if (ptemperature) {
-        *ptemperature = (byte)(int)temperature;
+        *ptemperature = static_cast<byte>(static_cast<int>(temperature));
     }
 
     if (phumidity) {
-        *phumidity = (byte)(int)humidity;
+        *phumidity = static_cast<byte>(static_cast<int>(humidity));
     }
 
     return ret;
 }
 
-int SimpleDHT::read(int pin, byte* ptemperature, byte* phumidity, byte pdata[40]) {
+int SimpleDHT::read(int pin, byte* ptemperature, byte* phumidity, byte pdata[5]) {
     setPin(pin);
     return read(ptemperature, phumidity, pdata);
-}
-
-void SimpleDHT::setPin(int pin) {
-    this->pin = pin;
-#ifdef __AVR
-    // (only AVR) - set low level properties for configured pin
-    bitmask = digitalPinToBitMask(pin);
-    port = digitalPinToPort(pin);
-#endif
 }
 
 #ifdef __AVR
@@ -116,25 +124,24 @@ long SimpleDHT::levelTime(byte level, int firstWait, int interval) {
     return time;
 }
 
-byte SimpleDHT::bits2byte(byte data[8]) {
-    byte v = 0;
-    for (int i = 0; i < 8; i++) {
-        v += data[i] << (7 - i);
-    }
-    return v;
+//https://stackoverflow.com/a/2602885/4203189
+byte SimpleDHT::reverse(byte b) {
+    b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+    b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+    b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+    return b;
 }
 
-int SimpleDHT::parse(byte data[40], short* ptemperature, short* phumidity) {
-    short humidity = bits2byte(data);
-    short humidity2 = bits2byte(data + 8);
-    short temperature = bits2byte(data + 16);
-    short temperature2 = bits2byte(data + 24);
-    byte check = bits2byte(data + 32);
-    byte expect = (byte)humidity + (byte)humidity2 + (byte)temperature + (byte)temperature2;
+int SimpleDHT::parse(byte data[5], short* ptemperature, short* phumidity) {
+    short humidity = reverse(data[0]);
+    short humidity2 = reverse(data[1]);
+    short temperature = reverse(data[2]);
+    short temperature2 = reverse(data[3]);
+    byte check = reverse(data[4]);
+    byte expect = static_cast<byte>(humidity) + static_cast<byte>(humidity2) + static_cast<byte>(temperature) + static_cast<byte>(temperature2);
     if (check != expect) {
         return SimpleDHTErrDataChecksum;
     }
-
     *ptemperature = temperature<<8 | temperature2;
     *phumidity = humidity<<8 | humidity2;
 
@@ -147,18 +154,17 @@ SimpleDHT11::SimpleDHT11() {
 SimpleDHT11::SimpleDHT11(int pin) : SimpleDHT (pin) {
 }
 
-int SimpleDHT11::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
+int SimpleDHT11::read2(float* ptemperature, float* phumidity, byte pdata[5]) {
     int ret = SimpleDHTErrSuccess;
 
     if (pin == -1) {
         return SimpleDHTErrNoPin;
     }
 
-    byte data[40] = {0};
+    byte data[5] = {0};
     if ((ret = sample(data)) != SimpleDHTErrSuccess) {
         return ret;
     }
-
     short temperature = 0;
     short humidity = 0;
     if ((ret = parse(data, &temperature, &humidity)) != SimpleDHTErrSuccess) {
@@ -166,7 +172,7 @@ int SimpleDHT11::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
     }
 
     if (pdata) {
-        memcpy(pdata, data, 40);
+        memcpy(pdata, data, 5);
     }
     if (ptemperature) {
         *ptemperature = (int)(temperature>>8);
@@ -183,20 +189,20 @@ int SimpleDHT11::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
     return ret;
 }
 
-int SimpleDHT11::read2(int pin, float* ptemperature, float* phumidity, byte pdata[40]) {
+int SimpleDHT11::read2(int pin, float* ptemperature, float* phumidity, byte pdata[5]) {
     setPin(pin);
     return read2(ptemperature, phumidity, pdata);
 }
 
-int SimpleDHT11::sample(byte data[40]) {
+int SimpleDHT11::sample(byte data[5]) {
     // empty output data.
-    memset(data, 0, 40);
+    memset(data, 0, 5);
 
     // According to protocol: [1] https://akizukidenshi.com/download/ds/aosong/DHT11.pdf
     // notify DHT11 to start:
     //    1. PULL LOW 20ms.
     //    2. PULL HIGH 20-40us.
-    //    3. SET TO INPUT.
+    //    3. SET TO INPUT or INPUT_PULLUP.
     // Changes in timing done according to:
     //  [2] https://www.mouser.com/ds/2/758/DHT11-Technical-Data-Sheet-Translated-Version-1143054.pdf
     // - original values specified in code
@@ -210,7 +216,7 @@ int SimpleDHT11::sample(byte data[40]) {
     // @see https://github.com/winlinvip/SimpleDHT/issues/4
     // @see https://github.com/winlinvip/SimpleDHT/pull/5
     digitalWrite(pin, HIGH);           // 2.
-    pinMode(pin, INPUT);
+    pinMode(pin, this->pinInputMode);
     delayMicroseconds(25);             // specs [2]: 20-40us
 
     // DHT11 starting:
@@ -242,7 +248,7 @@ int SimpleDHT11::sample(byte data[40]) {
           if (t < 11) {                     // specs say: 20us
               return simpleDHTCombileError(t, SimpleDHTErrDataRead);
           }
-          data[ j ] = (t > 40 ? 1 : 0);     // specs: 26-28us -> 0, 70us -> 1
+          bitWrite(data[j / 8], j % 8, (t > 40 ? 1 : 0));     // specs: 26-28us -> 0, 70us -> 1
     }
 
     // DHT11 EOF:
@@ -251,7 +257,6 @@ int SimpleDHT11::sample(byte data[40]) {
     if (t < 24) {                           // specs say: 50us
         return simpleDHTCombileError(t, SimpleDHTErrDataEOF);
     }
-
     return SimpleDHTErrSuccess;
 }
 
@@ -261,14 +266,14 @@ SimpleDHT22::SimpleDHT22() {
 SimpleDHT22::SimpleDHT22(int pin) : SimpleDHT (pin) {
 }
 
-int SimpleDHT22::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
+int SimpleDHT22::read2(float* ptemperature, float* phumidity, byte pdata[5]) {
     int ret = SimpleDHTErrSuccess;
 
     if (pin == -1) {
         return SimpleDHTErrNoPin;
     }
 
-    byte data[40] = {0};
+    byte data[5] = {0};
     if ((ret = sample(data)) != SimpleDHTErrSuccess) {
         return ret;
     }
@@ -280,7 +285,7 @@ int SimpleDHT22::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
     }
 
     if (pdata) {
-        memcpy(pdata, data, 40);
+        memcpy(pdata, data, 5);
     }
     if (ptemperature) {
         *ptemperature = (float)((temperature & 0x8000 ? -1 : 1) * (temperature & 0x7FFF)) / 10.0;
@@ -292,20 +297,20 @@ int SimpleDHT22::read2(float* ptemperature, float* phumidity, byte pdata[40]) {
     return ret;
 }
 
-int SimpleDHT22::read2(int pin, float* ptemperature, float* phumidity, byte pdata[40]) {
+int SimpleDHT22::read2(int pin, float* ptemperature, float* phumidity, byte pdata[5]) {
     setPin(pin);
     return read2(ptemperature, phumidity, pdata);
 }
 
-int SimpleDHT22::sample(byte data[40]) {
+int SimpleDHT22::sample(byte data[5]) {
     // empty output data.
-    memset(data, 0, 40);
+    memset(data, 0, 5);
 
     // According to protocol: http://akizukidenshi.com/download/ds/aosong/AM2302.pdf
-    // notify DHT11 to start:
+    // notify DHT22 to start:
     //    1. T(be), PULL LOW 1ms(0.8-20ms).
     //    2. T(go), PULL HIGH 30us(20-200us), use 40us.
-    //    3. SET TO INPUT.
+    //    3. SET TO INPUT or INPUT_PULLUP.
     pinMode(pin, OUTPUT);
     digitalWrite(pin, LOW);
     delayMicroseconds(1000);
@@ -313,10 +318,10 @@ int SimpleDHT22::sample(byte data[40]) {
     // @see https://github.com/winlinvip/SimpleDHT/issues/4
     // @see https://github.com/winlinvip/SimpleDHT/pull/5
     digitalWrite(pin, HIGH);
-    pinMode(pin, INPUT);
-    delayMicroseconds(40);
+    pinMode(pin, this->pinInputMode);
+    delayMicroseconds(5);
 
-    // DHT11 starting:
+    // DHT22 starting:
     //    1. T(rel), PULL LOW 80us(75-85us).
     //    2. T(reh), PULL HIGH 80us(75-85us).
     long t = 0;
@@ -327,7 +332,7 @@ int SimpleDHT22::sample(byte data[40]) {
         return simpleDHTCombileError(t, SimpleDHTErrStartHigh);
     }
 
-    // DHT11 data transmite:
+    // DHT22 data transmite:
     //    1. T(LOW), 1bit start, PULL LOW 50us(48-55us).
     //    2. T(H0), PULL HIGH 26us(22-30us), bit(0)
     //    3. T(H1), PULL HIGH 70us(68-75us), bit(1)
@@ -342,10 +347,10 @@ int SimpleDHT22::sample(byte data[40]) {
           if (t < 11) {                     // specs say: 26us
               return simpleDHTCombileError(t, SimpleDHTErrDataRead);
           }
-          data[ j ] = (t > 40 ? 1 : 0);     // specs: 22-30us -> 0, 70us -> 1
+          bitWrite(data[j / 8], j % 8, (t > 40 ? 1 : 0));     // specs: 22-30us -> 0, 70us -> 1
     }
 
-    // DHT11 EOF:
+    // DHT22 EOF:
     //    1. T(en), PULL LOW 50us(45-55us).
     t = levelTime(LOW);
     if (t < 24) {

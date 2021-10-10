@@ -30,3 +30,7 @@
 
 # Debug files
 *.dSYM/
+
+# Visual Studio cache/options directory
+.vs/
+.idea
