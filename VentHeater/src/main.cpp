@@ -62,7 +62,7 @@ float TEHTargetTemp=40;
 static float TEHTargetTemp_MIN=18;
 static float TEHTargetTemp_MAX=150;//100-test
 
-static float TEHMaxTemp=220;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
+static float TEHMaxTemp=250;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
 //static float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
 //надо двойную защиту: по абс.макс. и по скорости прироста температуры выставить:
 //- если за заданное время прирост больше максимума - значит нет продува!
@@ -132,9 +132,11 @@ void TEH_kPwr_Evaluation(){
   }else if(TEHPower>10){
     TEHPower=10;
   }
-  
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTemp, fround(AirOutTargetTemp,1));
+
+  if( TEHPIDSTATUS!=1 ){ //its PID - sent later, after correction evaluation
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower,1));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTemp, fround(AirOutTargetTemp,1));
+  }
 }
 
 ///////////////////////////////////TEH PID//////////////////////////////
@@ -194,7 +196,7 @@ void TEHPIDCorrectionEvaluation(){ //calc TEHPower_PIDCorrection  - в пред�
   //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(I,2));
   //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower+TEHPower_PIDCorrection,1));
-  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower_PIDCorrection, fround(TEHPower_PIDCorrection,1));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower_PIDCorrection, fround(TEHPower_PIDCorrection,2));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTemp, fround(AirOutTargetTemp,1));
 }
 
@@ -244,7 +246,7 @@ void TEHPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
       }
   }
 
-  if(tempAirOut > AirOutTargetTemp_MAX){ //additional protection
+  if(tempAirOut > AirOutTargetTemp_MAX+2){ //additional protection
     TEHPowerCurrentStateOnOff=0;
   }
   if(tempTEH > TEHMaxTemp){ //additional protection
