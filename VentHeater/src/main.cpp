@@ -57,7 +57,7 @@ unsigned long kPwr_lastPreheatStartMillis=0, minpreheatRepeatPeriodMillis=5*60*1
 
 float AirOutTargetTemp=20;
 static float AirOutTargetTemp_MIN=15;
-static float AirOutTargetTemp_MAX=28;//30-test, 24-real
+static float AirOutTargetTemp_MAX=32;//30-test, 24-real //32-cause theres strange readings (ir emmitance?)
 float TEHTargetTemp=40;
 static float TEHTargetTemp_MIN=18;
 static float TEHTargetTemp_MAX=150;//100-test
