@@ -55,6 +55,10 @@ void testSendQueueMQTT(){
 //#endif
 #endif
 
+void SendCANQueueError(){
+  Blynk.virtualWrite(VPIN_CANQueueError, CANQueueError);
+}
+
 /////////////////////////////////////////////////////////////////
   
 char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
@@ -222,7 +226,7 @@ void setup(){
   #endif
 
   // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT
+  if(CAN0.begin(MCP_STD, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT
     ;//Serial.println("MCP2515 Initialized Successfully!");
   else
     Serial.println("Error Initializing MCP2515!..");
@@ -232,14 +236,14 @@ void setup(){
   unsigned long filt = (0x0100L | CAN_Unit_FILTER_ESPWF)<<16;	//0x04	0x01040000;
   //first mask: ID=0x100
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
-  CAN0.init_Filt(0,0,0x0100);                // Init first filter...
-  //CAN0.init_Filt(1,0,0x0000);                // Init second filter...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
+  CAN0.init_Filt(1,0,0x01000000);                // Init second filter...
   //second mask: ID=0x010F - receive only CAN_Unit_MASK = CAN_Unit_FILTER_ESPWF
   CAN0.init_Mask(1,0,mask);                // Init second mask...
   CAN0.init_Filt(2,0,filt);                // Init third filter...
-  //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
-  //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
-  //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
+  CAN0.init_Filt(3,0,filt);                // Init fouth filter...
+  CAN0.init_Filt(4,0,filt);                // Init fifth filter...
+  CAN0.init_Filt(5,0,filt);                // Init sixth filter...
 
   // Since we do not set NORMAL mode, we are in loopback mode by default.
   CAN0.setMode(MCP_NORMAL);
@@ -256,6 +260,8 @@ void setup(){
   #ifdef LocalBlynk_On
   Blynk.begin(auth, ssid, pass, IPAddress(192,168,0,130), 8080);
   #endif
+
+  timer.setInterval(5000L, SendCANQueueError);
 
   #ifdef MQTT_On
   MQTTClient.setServer(mqtt_server, mqtt_port);

@@ -60,7 +60,7 @@ static float AirOutTargetTemp_MIN=15;
 static float AirOutTargetTemp_MAX=32;//30-test, 24-real //32-cause theres strange readings (ir emmitance?)
 float TEHTargetTemp=40;
 static float TEHTargetTemp_MIN=18;
-static float TEHTargetTemp_MAX=150;//100-test
+static float TEHTargetTemp_MAX=230;//100-test
 
 static float TEHMaxTemp=250;  //защита; надо смотреть какой максимум выставить (по идее надо динамически с учетом внешней темп.)
 //static float TEHMaxTempIncreasePerControlPeriod=100, TEHIncreaseControlPeriodSec=10;
@@ -790,7 +790,7 @@ void setup(void) {
   ValveClose(); //initial closing
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
@@ -806,16 +806,16 @@ void setup(void) {
   //receive 0x100 messages:
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
   CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-  // CAN0.init_Mask(0,0,mask);                // Init first mask...
-  // CAN0.init_Filt(0,0,filt0);                // Init first filter...
+  CAN0.init_Filt(1,0,0x01000000);
+
+  CAN0.init_Mask(1,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(2,0,0x01000000);
+  CAN0.init_Filt(3,0,0x01000000);
+  CAN0.init_Filt(4,0,0x01000000);
+  CAN0.init_Filt(5,0,0x01000000);
   // #ifdef testmode
   // CAN0.init_Filt(1,0,filt1);                // Init second filter...
   // #endif
-  //CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
-  //CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
-  //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
-  //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
-  //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
   
   //#ifdef testmode
   //CAN0.setMode(MCP_LOOPBACK);

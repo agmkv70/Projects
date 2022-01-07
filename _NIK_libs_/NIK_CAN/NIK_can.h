@@ -17,7 +17,7 @@ unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
 #define CAN_NEXT_TRY_INTERVAL 50
-#define CAN_MAX_SEND_TRIES 5
+#define CAN_MAX_SEND_TRIES 3
 
 //filter message types:
 #define CAN_MSG_MASK           0xF0L

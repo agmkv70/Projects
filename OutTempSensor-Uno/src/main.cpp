@@ -329,7 +329,7 @@ void setup(void) {
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   //if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
-  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
+  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STDEXT - they are the only working modes
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else{
     #ifdef testmode

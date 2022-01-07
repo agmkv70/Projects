@@ -109,3 +109,5 @@ int boardSTATUS = Status_Auto1;
 //#define VPIN_OutdoorAirQ_Altitude
 #define VPIN_OutdoorAirQ_IAQ          98
 #define VPIN_OutdoorAirQ_IAQ_accuracy 99 //0-starting; 1-too stable env; 2-(re)calibrating; 3-working
+
+#define VPIN_CANQueueError 100 //CANQueueError on Wifi-ESP8266
