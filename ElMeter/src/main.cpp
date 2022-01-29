@@ -4,50 +4,47 @@
 
 SimpleTimer timer; // запускает выполнение функций по таймеру
 
+#define test_mode 1
+
 //-------- порты для rs 485
-#define SSerialRx D1     // RO
-#define SSerialTx D2     // DI
-#define SerialControl D5 // RS485 для выбора направления
+#define SSerialTx 2     // was 1
+#define SSerialRx 3     // was 0
 #define RS485Transmit HIGH
 #define RS485Receive LOW
 
-#define ONE_WIRE_BUS D6 // датчик температуры DS18b20
-
-SoftwareSerial RS485Serial(SSerialRx, SSerialTx); // Rx, Tx
+SoftwareSerial CANSerial(SSerialRx, SSerialTx); // Rx, Tx
 
 //    команды Меркурий 200
 //    |Адрес счетчика 4 байта | Запрос 1 байт|
 
-byte address[] = {250, 0, 2, 11}; // адрес 4194304523
+byte address[] = {232};// адрес мой 323
 
-byte test_cmd[] = {39}; // тестовая команда для счетчика
+byte test_cmd[] = {0}; // тестирование канала связи
+byte openUser_cmd[] = {1,1,1,1,1,1,1,1}; // тестирование канала связи (code=1,level=1,pw=111111(hex))
+byte currentTime_cmd[] = {4,0};    // read=4, cur.time=0
+byte currentEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
+
 byte Current[] = {};    // команда сила тока
 byte Voltage[] = {};    // команда напряжение
 byte Power[] = {};      // команда мощность
 byte energy[] = {39};   // команда энергия
 byte battery[] = {41};  // напряжение батарейки
 
-int netAdr2 = 4194304523; // адрес тест счетчика (не используется в коде)|  | {250, 0, 2, 11, | | FA00020B |
-int netAdr = 860366;      // адрес счетчика (не используется в коде)|  | {00, 13, 32, 206, | | D20CE |
-
-int firstRun = 1; // знать что первый запуск
+/*int firstRun = 1; // знать что первый запуск
 int rssi;
 float varCurrent;
 int varVoltage;
 float varenergyT1;
 float varenergyT2;
 float varenergy_sum;
-float varMoneySpent;
-float var_battery;
 int varPower;
 int varPower1;
 int varPower2;
 int varPower3;
 int varPowerDif;
-int varPowerDifBlynk;
 int power_change = 0;
 int power_hold = 0;
-int sensor_error = 0;
+int sensor_error = 0;*/
 
 byte response[24]; // длина массива входящего сообщения
 int byteReceived;
@@ -123,17 +120,16 @@ void test_send(byte *cmd, int s_cmd) // для тестовых запросов
     pos++;
   }
 
-  Serial.println(" ");
-  Serial.println(" ");
-  Serial.print("Sending test mode");
-  Serial.println(" ");
-  Blynk.virtualWrite(BlynkVP_Terminal, "\nTest sending: ");
-
+  //Serial.println(" ");
+  //Serial.println(" ");
+  //Serial.print("Sending test mode");
+  //Serial.println(" ");
+  
   unsigned int crc = crc16MODBUS(address_cmd, s_address_cmd);
   unsigned int crc1 = crc & 0xFF;
   unsigned int crc2 = (crc >> 8) & 0xFF;
-  digitalWrite(SerialControl, RS485Transmit); // Переключает RS485 на передачу
-  delay(100);
+  //digitalWrite(SerialControl, RS485Transmit); // Переключает RS485 на передачу
+  //delay(100);
 
   address_cmd_crc[pos] = crc1;
   pos++;
@@ -150,53 +146,43 @@ void test_send(byte *cmd, int s_cmd) // для тестовых запросов
     temp_term2 += " ";
   }
 
-  Serial.println("");
-  Serial.print("RS485Serial.write test:  ");
-  Serial.print(temp_term1);
-  Serial.println("");
-  Serial.print("RS485Serial.write test HEX:  ");
-  Serial.print(temp_term2);
-
-  Blynk.virtualWrite(BlynkVP_Terminal, "\nTest write:  ", temp_term1);
-  Blynk.virtualWrite(BlynkVP_Terminal, "\nTest write HEX:  ", temp_term2);
+  //Serial.println("");
+  //Serial.print("RS485Serial.write test:  ");
+  //Serial.print(temp_term1);
+  //Serial.println("");
+  Serial.print("Send HEX:  ");
+  Serial.println(temp_term2);
 
   for (int i = 0; i < s_address_cmd_crc; i++)
   {
-    RS485Serial.write(address_cmd_crc[i]);
+    CANSerial.write(address_cmd_crc[i]);
   }
 
-  digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
+  //digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
   delay(100);
 
-  if (RS485Serial.available()) // получаем: |Адрес счетчика | Запрос на который отвечаем | Ответ |	CRC16 (Modbus)|
+  if (CANSerial.available()) 
   {
-    byte i = 0;
-    while (RS485Serial.available())
+    byte irec = 0;
+    while (CANSerial.available())
     {
-      byteReceived = RS485Serial.read(); //
+      byteReceived = CANSerial.read(); //
+      response[irec++] = byteReceived;
       delay(10);
-      response[i++] = byteReceived;
     }
 
     String temp_term1 = "";
-    String temp_term2 = "";
-    for (unsigned int i = 0; i < (sizeof(response)); i++) //
+    for (unsigned int i = 0; i < irec; i++) //
     {
-      temp_term1 += String(response[i]);
+      temp_term1 += String(response[i], HEX);
       temp_term1 += " ";
-      temp_term2 += String(response[i], HEX);
-      temp_term2 += " ";
     }
-    Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond:  ", temp_term1);
-    Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond HEX:  ", temp_term2);
-
-    Serial.println("");
-    Serial.println("");
-    Serial.print("Respond:  ");
+    //Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond:  ", temp_term1);
+    //Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond HEX:  ", temp_term2);
+    
+    Serial.print("Received:  ");
     Serial.print(temp_term1);
     Serial.println("");
-    Serial.print("Respond HEX  ");
-    Serial.print(temp_term2);
 
     for (unsigned int i = 0; i < (sizeof(response)); i++) //
     {
@@ -211,21 +197,21 @@ void test_receive() // для тестовых входящих {Адрес сч
   Serial.println(" ");
   Serial.print("Receiving test mode - listening 5 seconds");
   Serial.println(" ");
-  Blynk.virtualWrite(BlynkVP_Terminal, "\nTest receiving 5 seconds: ");
-  digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
-  delay(100);
+  //Blynk.virtualWrite(BlynkVP_Terminal, "\nTest receiving 5 seconds: ");
+  //digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
+  //delay(100);
   unsigned long test_receive_timer = millis(); // "сбросить" таймер
   int response_status = 0;
   while (millis() - test_receive_timer < 5000)
   {
-    if (RS485Serial.available()) // получаем: |Адрес счетчика | Запрос на который отвечаем | Ответ |	CRC16 (Modbus)|
+    if (CANSerial.available()) // получаем: |Адрес счетчика | Запрос на который отвечаем | Ответ |	CRC16 (Modbus)|
     {
       response_status = 1;
       byte i = 0;
       Serial.println(" ");
-      while (RS485Serial.available())
+      while (CANSerial.available())
       {
-        byteReceived = RS485Serial.read(); //
+        byteReceived = CANSerial.read(); //
         delay(10);
         response[i++] = byteReceived;
       }
@@ -241,8 +227,8 @@ void test_receive() // для тестовых входящих {Адрес сч
         temp_term2 += String(response[i], HEX);
         temp_term2 += " ";
       }
-      Blynk.virtualWrite(BlynkVP_Terminal, "\nReceived:  ", temp_term1);
-      Blynk.virtualWrite(BlynkVP_Terminal, "\nReceived HEX:  ", temp_term2);
+      //Blynk.virtualWrite(BlynkVP_Terminal, "\nReceived:  ", temp_term1);
+      //Blynk.virtualWrite(BlynkVP_Terminal, "\nReceived HEX:  ", temp_term2);
 
       Serial.println("");
       Serial.print("Received:  ");
@@ -262,18 +248,12 @@ void test_receive() // для тестовых входящих {Адрес сч
   {
     Serial.println("");
     Serial.println("quiet");
-    Blynk.virtualWrite(BlynkVP_Terminal, "\nquiet");
+    //Blynk.virtualWrite(BlynkVP_Terminal, "\nquiet");
     Serial.println("");
   }
 }
 
-void test() // тесовый режим
-{
-
-  test_send(test_cmd, sizeof(test_cmd));
-  test_receive();
-}
-
+/*
 void send(byte *cmd, int s_cmd) // отправка-получение в обычном режиме {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
 {
 
@@ -514,18 +494,18 @@ void Mercury_Fast_Data() // для запросов и действий треб
   Blynk.virtualWrite(BlynkVP_varMoneySpent, varMoneySpent); // отправляет в блинк расхд в рублях
   Blynk.virtualWrite(BlynkVP_varBattery, var_battery);      // отправляет в блинк сколько вольт осталось в батарейке
 }
-
+*/
 
 void setup()
 {
-  RS485Serial.begin(9600);
+  CANSerial.begin(9600);
   Serial.begin(115200);
-  Serial.println("setup ");
+  //Serial.println("setup ");
   
-  timer.setInterval(1000L, Mercury_Fast_Data); // интервал для частых  опросов (1000L = 1 секунда)
-  timer.setInterval(3000L, Mercury_Slow_Data); // интервал для  редких опросов чтобы освободить время для моментальных показателей (обычно 60000L раз в минуту опрос)
+  //timer.setInterval(1000L, Mercury_Fast_Data); // интервал для частых  опросов (1000L = 1 секунда)
+  //timer.setInterval(3000L, Mercury_Slow_Data); // интервал для  редких опросов чтобы освободить время для моментальных показателей (обычно 60000L раз в минуту опрос)
   
-  pinMode(SerialControl, OUTPUT);
+  //pinMode(SerialControl, OUTPUT);
 
 }
 
@@ -533,7 +513,16 @@ void loop()
 {
   if (test_mode == 1) // если режим тест то выполняется только тест
   {
-    test();
+    Serial.println();
+    test_send(test_cmd, sizeof(test_cmd));
+    //delay(200);
+    test_send(openUser_cmd, sizeof(openUser_cmd));
+    //delay(200);
+    test_send(currentTime_cmd, sizeof(currentTime_cmd));
+    //delay(200);
+    test_send(currentEnergy_cmd, sizeof(currentEnergy_cmd));
+    
+    delay(10000);
   }
   else
   {
