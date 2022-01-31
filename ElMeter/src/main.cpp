@@ -14,21 +14,25 @@ SimpleTimer timer; // запускает выполнение функций п�
 
 SoftwareSerial CANSerial(SSerialRx, SSerialTx); // Rx, Tx
 
-//    команды Меркурий 200
-//    |Адрес счетчика 4 байта | Запрос 1 байт|
+//    команды Меркурий 230
+//    |Адрес счетчика 1 байт | Запрос 1 байт|
 
-byte address[] = {232};// адрес мой 323
+byte address[] = {232};// адрес мой 232
 
 byte test_cmd[] = {0}; // тестирование канала связи
 byte openUser_cmd[] = {1,1,1,1,1,1,1,1}; // тестирование канала связи (code=1,level=1,pw=111111(hex))
-byte currentTime_cmd[] = {4,0};    // read=4, cur.time=0
-byte currentEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
-
-byte Current[] = {};    // команда сила тока
-byte Voltage[] = {};    // команда напряжение
-byte Power[] = {};      // команда мощность
-byte energy[] = {39};   // команда энергия
-byte battery[] = {41};  // напряжение батарейки
+byte getTime_cmd[] = {4,0};    // read=4, cur.time=0
+byte getEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
+byte curent_PSum_cmd[] = {8,0x16,0x00}; //phase sum=0x00, 0x01-1phase,...
+byte curent_P1_cmd[] = {8,0x16,0x01}; //Power 1 phase
+byte curent_P2_cmd[] = {8,0x16,0x02};
+byte curent_P3_cmd[] = {8,0x16,0x03};
+byte curent_I1_cmd[] = {8,0x16,0x21}; //Current 1 phase
+byte curent_I2_cmd[] = {8,0x16,0x22};
+byte curent_I3_cmd[] = {8,0x16,0x23};
+byte curent_U1_cmd[] = {8,0x16,0x11}; //U 1 phase
+byte curent_U2_cmd[] = {8,0x16,0x12};
+byte curent_U3_cmd[] = {8,0x16,0x13};
 
 /*int firstRun = 1; // знать что первый запуск
 int rssi;
@@ -497,20 +501,22 @@ void Mercury_Fast_Data() // для запросов и действий треб
 */
 
 void setup()
-{
+{ 
   CANSerial.begin(9600);
   Serial.begin(115200);
+  
   //Serial.println("setup ");
   
   //timer.setInterval(1000L, Mercury_Fast_Data); // интервал для частых  опросов (1000L = 1 секунда)
   //timer.setInterval(3000L, Mercury_Slow_Data); // интервал для  редких опросов чтобы освободить время для моментальных показателей (обычно 60000L раз в минуту опрос)
   
   //pinMode(SerialControl, OUTPUT);
-
+  /*pinMode(0, INPUT);
+  pinMode(1, INPUT);*/
 }
 
 void loop()
-{
+{ 
   if (test_mode == 1) // если режим тест то выполняется только тест
   {
     Serial.println();
@@ -518,9 +524,17 @@ void loop()
     //delay(200);
     test_send(openUser_cmd, sizeof(openUser_cmd));
     //delay(200);
-    test_send(currentTime_cmd, sizeof(currentTime_cmd));
+    test_send(getTime_cmd, sizeof(getTime_cmd));
     //delay(200);
-    test_send(currentEnergy_cmd, sizeof(currentEnergy_cmd));
+    test_send(getEnergy_cmd, sizeof(getEnergy_cmd));
+    
+    test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd));
+
+    test_send(curent_I1_cmd, sizeof(curent_I1_cmd));
+    test_send(curent_I2_cmd, sizeof(curent_I2_cmd));
+    
+    test_send(curent_U1_cmd, sizeof(curent_U1_cmd));
+    test_send(curent_U2_cmd, sizeof(curent_U2_cmd));
     
     delay(10000);
   }
