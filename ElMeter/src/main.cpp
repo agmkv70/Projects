@@ -7,8 +7,8 @@ SimpleTimer timer; // запускает выполнение функций п�
 #define test_mode 1
 
 //-------- порты для rs 485
-#define SSerialTx 2     // was 1
-#define SSerialRx 3     // was 0
+#define SSerialTx D5     // was 1
+#define SSerialRx D6     // was 0
 #define RS485Transmit HIGH
 #define RS485Receive LOW
 
@@ -24,15 +24,16 @@ byte openUser_cmd[] = {1,1,1,1,1,1,1,1}; // тестирование канал�
 byte getTime_cmd[] = {4,0};    // read=4, cur.time=0
 byte getEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
 byte curent_PSum_cmd[] = {8,0x16,0x00}; //phase sum=0x00, 0x01-1phase,...
-byte curent_P1_cmd[] = {8,0x16,0x01}; //Power 1 phase
-byte curent_P2_cmd[] = {8,0x16,0x02};
-byte curent_P3_cmd[] = {8,0x16,0x03};
-byte curent_I1_cmd[] = {8,0x16,0x21}; //Current 1 phase
-byte curent_I2_cmd[] = {8,0x16,0x22};
-byte curent_I3_cmd[] = {8,0x16,0x23};
-byte curent_U1_cmd[] = {8,0x16,0x11}; //U 1 phase
-byte curent_U2_cmd[] = {8,0x16,0x12};
-byte curent_U3_cmd[] = {8,0x16,0x13};
+//byte curent_P1_cmd[] = {8,0x16,0x01}; //Power 1 phase
+//byte curent_P2_cmd[] = {8,0x16,0x02};
+//byte curent_P3_cmd[] = {8,0x16,0x03};
+/*byte curent_I1_cmd[] = {8,0x14,0x21}; //Current 1 phase
+byte curent_I2_cmd[] = {8,0x14,0x22};
+byte curent_I3_cmd[] = {8,0x14,0x23};*/
+byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
+//byte curent_U1_cmd[] = {8,0x14,0x11}; //U 1 phase
+//byte curent_U2_cmd[] = {8,0x14,0x12};
+//byte curent_U3_cmd[] = {8,0x14,0x13};
 
 /*int firstRun = 1; // знать что первый запуск
 int rssi;
@@ -99,7 +100,7 @@ unsigned int crc16MODBUS(byte *s, int count) // Расчет контрольн�
   return crc;
 }
 
-void test_send(byte *cmd, int s_cmd) // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+void test_send(byte *cmd, int s_cmd, byte responseLength) // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
 {
 
   int s_address = sizeof(address);
@@ -139,13 +140,13 @@ void test_send(byte *cmd, int s_cmd) // для тестовых запросов
   pos++;
   address_cmd_crc[pos] = crc2;
 
-  String temp_term1 = "";
+  //String temp_term1 = "";
   String temp_term2 = "";
 
   for (int i = 0; i < s_address_cmd_crc; i++)
   {
-    temp_term1 += String(address_cmd_crc[i]);
-    temp_term1 += " ";
+    //temp_term1 += String(address_cmd_crc[i]);
+    //temp_term1 += " ";
     temp_term2 += String(address_cmd_crc[i], HEX);
     temp_term2 += " ";
   }
@@ -157,24 +158,38 @@ void test_send(byte *cmd, int s_cmd) // для тестовых запросов
   Serial.print("Send HEX:  ");
   Serial.println(temp_term2);
 
+  //Serial.swap();
+  CANSerial.flush();
+
   for (int i = 0; i < s_address_cmd_crc; i++)
   {
     CANSerial.write(address_cmd_crc[i]);
+    //Serial.write(address_cmd_crc[i]);
   }
+  //delay(30);
+  //CANSerial.flush();
+  //Serial.flush();
 
   //digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
-  delay(100);
+  //delay(100);
+  long receivetimeout=150, startmillis=millis(), lastreadmillis;
+  lastreadmillis = startmillis;
 
-  if (CANSerial.available()) 
-  {
-    byte irec = 0;
-    while (CANSerial.available())
-    {
+  //if (CANSerial.available()) 
+  //if (Serial.available()) 
+  byte irec = 0;
+  do{ 
+    delay(5);
+    //if(Serial.available()){
+    while(CANSerial.available()){
       byteReceived = CANSerial.read(); //
+      //byteReceived = Serial.read(); //
       response[irec++] = byteReceived;
-      delay(10);
+      lastreadmillis = millis();
     }
-
+  }while(irec < 3+s_cmd+responseLength && millis()-lastreadmillis < receivetimeout);
+  
+  if(irec>0){
     String temp_term1 = "";
     for (unsigned int i = 0; i < irec; i++) //
     {
@@ -184,18 +199,26 @@ void test_send(byte *cmd, int s_cmd) // для тестовых запросов
     //Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond:  ", temp_term1);
     //Blynk.virtualWrite(BlynkVP_Terminal, "\nRespond HEX:  ", temp_term2);
     
+    //Serial.swap();
+    //Serial.flush();
     Serial.print("Received:  ");
     Serial.print(temp_term1);
+    Serial.print(" - ");
+    Serial.print(millis()-startmillis);
+    Serial.print(" : ");
+    Serial.print(irec);
+    Serial.print(" < ");
+    Serial.print(3+s_cmd+responseLength);
     Serial.println("");
 
-    for (unsigned int i = 0; i < (sizeof(response)); i++) //
+    /*for (unsigned int i = 0; i < (sizeof(response)); i++) //
     {
       response[i] = 0; // обнуляет массив
-    }
+    }*/
   }
 }
 
-void test_receive() // для тестовых входящих {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+/*void test_receive() // для тестовых входящих {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
 {
   Serial.println(" ");
   Serial.println(" ");
@@ -255,7 +278,7 @@ void test_receive() // для тестовых входящих {Адрес сч
     //Blynk.virtualWrite(BlynkVP_Terminal, "\nquiet");
     Serial.println("");
   }
-}
+}*/
 
 /*
 void send(byte *cmd, int s_cmd) // отправка-получение в обычном режиме {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
@@ -504,8 +527,19 @@ void setup()
 { 
   CANSerial.begin(9600);
   Serial.begin(115200);
+  //Serial.begin(9600);
   
-  //Serial.println("setup ");
+  if (!CANSerial) { // If the object did not initialize, then its configuration is invalid
+    Serial.println("!!Invalid SoftwareSerial pin configuration, check config!!"); 
+    int on=1;
+    while (1) { // Don't continue with invalid configuration
+      digitalWrite(LED_BUILTIN,on);
+      delay (300);
+      on^=1;
+    }
+  } 
+  
+  Serial.println("***setup***");
   
   //timer.setInterval(1000L, Mercury_Fast_Data); // интервал для частых  опросов (1000L = 1 секунда)
   //timer.setInterval(3000L, Mercury_Slow_Data); // интервал для  редких опросов чтобы освободить время для моментальных показателей (обычно 60000L раз в минуту опрос)
@@ -520,21 +554,23 @@ void loop()
   if (test_mode == 1) // если режим тест то выполняется только тест
   {
     Serial.println();
-    test_send(test_cmd, sizeof(test_cmd));
+    test_send(test_cmd, sizeof(test_cmd), 1);
     //delay(200);
-    test_send(openUser_cmd, sizeof(openUser_cmd));
+    test_send(openUser_cmd, sizeof(openUser_cmd), 1);
     //delay(200);
-    test_send(getTime_cmd, sizeof(getTime_cmd));
+    test_send(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
+    //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
+    //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     //delay(200);
-    test_send(getEnergy_cmd, sizeof(getEnergy_cmd));
+    test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
     
-    test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd));
+    test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
 
-    test_send(curent_I1_cmd, sizeof(curent_I1_cmd));
-    test_send(curent_I2_cmd, sizeof(curent_I2_cmd));
+    //test_send(curent_P1_cmd, sizeof(curent_P1_cmd));
+    //test_send(curent_P2_cmd, sizeof(curent_P2_cmd));
     
-    test_send(curent_U1_cmd, sizeof(curent_U1_cmd));
-    test_send(curent_U2_cmd, sizeof(curent_U2_cmd));
+    test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); // 3x3 (ph1,ph2,ph3)
+    //test_send(curent_U2_cmd, sizeof(curent_U2_cmd));
     
     delay(10000);
   }
