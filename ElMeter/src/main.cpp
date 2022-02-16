@@ -254,7 +254,11 @@ byte ElMeter_OpenUser(byte usr){
     return res;
 }
 
-byte ElMeter_GetTime(){
+byte HDtoDec(byte x){
+  return (x>>4)*10 + (x&0xF);
+}
+  
+byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss){
   byte res;
   res = test_send(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
@@ -262,12 +266,12 @@ byte ElMeter_GetTime(){
     
   if(res>0){
     if(response[0]==address[0]){
-      byte ss = response[1];
-      byte mm = response[2];
-      byte hh = response[3];
-      byte DD = response[5];
-      byte MM = response[6];
-      byte YY = response[7];
+      *ss = HDtoDec(response[1]);
+      *mm = HDtoDec(response[2]);
+      *hh = HDtoDec(response[3]);
+      *DD = HDtoDec(response[5]);
+      *MM = HDtoDec(response[6]);
+      *YY = HDtoDec(response[7]);
       return 1; //OK
     }else{
       return -10; //wrong answear
@@ -653,9 +657,23 @@ void loop(){
   Serial.print("Login user1: ");
   Serial.println(res);
 
-  res = ElMeter_GetTime();
+  byte YY,MM,DD,hh,mm,ss;
+  res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss);
   Serial.print("Get time: ");
-  Serial.println(res);
+  Serial.print(res);
+  Serial.print(" ");
+  Serial.print(YY);
+  Serial.print("-");
+  Serial.print(MM);
+  Serial.print("-");
+  Serial.print(DD);
+  Serial.print(" ");
+  Serial.print(hh);
+  Serial.print(":");
+  Serial.print(mm);
+  Serial.print(":");
+  Serial.print(ss);
+  Serial.println();
   
   float Wh;
   res = ElMeter_GetEnergyA(&Wh);
