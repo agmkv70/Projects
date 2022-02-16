@@ -9,8 +9,8 @@
 
 //-------- порты для CAN
 #ifndef HardSerial
-#define SSerialTx D5     // was 1
-#define SSerialRx D6     // was 0
+#define SSerialTx D2     // was 1
+#define SSerialRx D3     // was 0
 SoftwareSerial CANSerial(SSerialRx, SSerialTx); // Rx, Tx
 #endif
 //    команды Меркурий 230:
