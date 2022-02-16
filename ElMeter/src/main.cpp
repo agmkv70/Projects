@@ -5,21 +5,27 @@
 //SimpleTimer timer;
 
 //#define HardSerial
-#define test_mode
+#define testMode
 
 //-------- порты для CAN
 #ifndef HardSerial
-#define SSerialTx D2     // was 1
-#define SSerialRx D3     // was 0
+#define SSerialTx 3     // was 1
+#define SSerialRx 2     // was 0
 SoftwareSerial CANSerial(SSerialRx, SSerialTx); // Rx, Tx
 #endif
+
 //    команды Меркурий 230:
 //    |Адрес счетчика 1 байт | Запрос 1 байт|
 byte address[] = {232};// адрес мой 232
 
 byte test_cmd[] = {0}; // тестирование канала связи
-byte openUser_cmd[] = {1,1,1,1,1,1,1,1}; // тестирование канала связи (code=1,level=1,pw=111111(hex))
+byte openUser_cmd1[] = {1,1,1,1,1,1,1,1}; // тестирование канала связи (code=1,level=1,pw=111111(hex))
+byte openUser_cmd2[] = {1,2,2,2,2,2,2,2}; // тестирование канала связи (code=1,level=2,pw=222222(hex))
+
 byte getTime_cmd[] = {4,0};    // read=4, cur.time=0
+byte setTime_cmd[] = {3,0x0C, 0,0,0,0,0,0,0,0}; // ss,mm,hh,wd,MM,YY,(s=0/w=1)
+byte setTimeCorr_cmd[] = {3,0x0D, 0,0,0};       // ss,mm,hh +-4min/day
+
 byte getEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
 byte curent_PSum_cmd[] = {8,0x16,0x00}; //phase sum=0x00, 0x01-1phase,...
 //byte curent_P1_cmd[] = {8,0x14,0x01}; //Power 1 phase
@@ -92,7 +98,7 @@ void SerialCleanSwap(){
 }
 #endif
 
-void test_send(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+byte test_send(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
   int s_address = sizeof(address);
   int s_address_cmd = s_address + s_cmd;
   int s_address_cmd_crc = s_address_cmd + 2;
@@ -110,19 +116,21 @@ void test_send(byte *cmd, int s_cmd, byte responseLength){ // для тесто�
   }
 
   unsigned int crc = crc16MODBUS(address_cmd_crc, s_address_cmd);
-  unsigned int crc1 = crc & 0xFF;
-  unsigned int crc2 = (crc >> 8) & 0xFF;
+  byte crc1 = crc & 0xFF;
+  byte crc2 = (crc >> 8) & 0xFF;
   address_cmd_crc[pos++] = crc1;
   address_cmd_crc[pos] = crc2;
 
-  //print command:
-  String temp_term2 = "";
-  for (int i = 0; i < s_address_cmd_crc; i++){
-    temp_term2 += String(address_cmd_crc[i], HEX);
-    temp_term2 += " ";
-  }
-  Serial.print("Send HEX:  ");
-  Serial.println(temp_term2);
+  #ifdef testMode
+    //print command:
+    String temp_term2 = "";
+    for (int i = 0; i < s_address_cmd_crc; i++){
+      temp_term2 += String(address_cmd_crc[i], HEX);
+      temp_term2 += " ";
+    }
+    Serial.print("Send HEX:  ");
+    Serial.println(temp_term2);
+  #endif
   
   #ifdef HardSerial
     SerialCleanSwap();
@@ -180,22 +188,189 @@ void test_send(byte *cmd, int s_cmd, byte responseLength){ // для тесто�
 
   //print received string:
   if(irec>0){
-    String temp_term1 = "";
-    for (unsigned int i = 0; i < irec; i++){
-      temp_term1 += String(response[i], HEX);
-      temp_term1 += " ";
+    #ifdef testMode
+      String temp_term1 = "";
+      for (unsigned int i = 0; i < irec; i++){
+        temp_term1 += String(response[i], HEX);
+        temp_term1 += " ";
+      }
+      Serial.print("Received:  ");
+      Serial.print(temp_term1);
+      Serial.print(" - ");
+      Serial.print(millis()-startmillis);
+      Serial.print(" : ");
+      Serial.print(irec);
+      Serial.print(" < ");
+      Serial.print(//s_address_cmd_crc+
+                    responseLength);
+      Serial.println("");
+    #endif
+    if(irec==responseLength && irec>2){
+      //check CRC
+      crc = crc16MODBUS(response, irec-2);
+      crc1 = crc & 0xFF;
+      crc2 = (crc >> 8) & 0xFF;
+      if(response[irec-2] == crc1 && response[irec-1] == crc2){
+        return 1;//OK
+      }else{
+        return -2;//crc error
+      }
+    }else{
+      return -1;//incorrect length
     }
-    Serial.print("Received:  ");
-    Serial.print(temp_term1);
-    Serial.print(" - ");
-    Serial.print(millis()-startmillis);
-    Serial.print(" : ");
-    Serial.print(irec);
-    Serial.print(" < ");
-    Serial.print(//s_address_cmd_crc+
-                  responseLength);
-    Serial.println("");
+  }else{
+    return 0;//no answear
   }
+}
+
+byte ElMeter_TestConnection(){
+  byte res = test_send(test_cmd, sizeof(test_cmd), 4);
+  if(res>0){
+    if(response[0]==address[0] && response[1]==0){
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_OpenUser(byte usr){
+  byte res;
+  if(usr==1){
+    res = test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
+  }else if(usr==2){
+    res = test_send(openUser_cmd2, sizeof(openUser_cmd2), 4);
+  }else{
+    return -100; //wrong usr parameter
+  }
+  if(res>0){
+    if(response[0]==address[0] && response[1]==0){
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_GetTime(byte usr){
+  byte res;
+  res = test_send(getTime_cmd, sizeof(getTime_cmd), 11);
+  //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
+  //Результат: 16:14:43 среда 27 февраля 2008 года, зима
+    
+  if(res>0){
+    if(response[0]==address[0]){
+      byte ss = response[1];
+      byte mm = response[2];
+      byte hh = response[3];
+      byte DD = response[5];
+      byte MM = response[6];
+      byte YY = response[7];
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_GetEnergyA(unsigned long *Active){
+  byte res;
+  res = test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
+  //4x4 bytes (A+,A-,R+,R-)
+  
+  if(res>0){
+    if(response[0]==address[0]){
+      
+      byte b1 = response[1];
+      byte b2 = response[2];
+      byte b3 = response[3];
+      byte b4 = response[4];
+      //b2_b1_b4_b3
+      *Active = (unsigned long)b2<<24 || (unsigned long)b1<<16 || (unsigned long)b4<<8 || (unsigned long)b3; 
+      
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
+  byte res;
+  res = test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
+  //4x3 bytes (sum,ph1,ph2,ph3)
+  
+  if(res>0){
+    if(response[0]==address[0]){
+      
+      byte b1 = response[4];
+      byte b2 = response[5];
+      byte b3 = response[6];
+      //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
+      unsigned long P = (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph1 = P;
+      
+      b1 = response[7];
+      b2 = response[8];
+      b3 = response[9];
+      //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
+      P = (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph2 = P;
+      
+      b1 = response[10];
+      b2 = response[11];
+      b3 = response[12];
+      //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
+      P = (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph3 = P;
+      
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
+  byte res;
+  res = test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
+  //3x3 (ph1,ph2,ph3)
+  
+  if(res>0){
+    if(response[0]==address[0]){
+      
+      byte b1 = response[1];
+      byte b2 = response[2];
+      byte b3 = response[3];
+      //b1_b3_b2
+      unsigned long U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph1 = U;
+      
+      b1 = response[4];
+      b2 = response[5];
+      b3 = response[6];
+      //b1_b3_b2
+      U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph2 = U;
+      
+      b1 = response[7];
+      b2 = response[8];
+      b3 = response[9];
+      //b1_b3_b2
+      U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
+      *Ph3 = U;
+      
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
 }
 
 /*
@@ -470,26 +645,26 @@ void loop(){
     Serial.println();
 
     test_send(test_cmd, sizeof(test_cmd), 4);
-    test_send(openUser_cmd, sizeof(openUser_cmd), 4);
+    test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
     test_send(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
     //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
     //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
     test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
-    test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); // 3x3 (ph1,ph2,ph3)
+    test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
     /*
-    Send HEX:  e8 0 4f b0 
-    Received:  e8 0 4f b0  - 16 : 4 < 8
-    Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85 
-    Received:  e8 0 4f b0  - 15 : 4 < 15
-    Send HEX:  e8 4 0 f3 34 
-    Received:  e8 20 27 21 7 6 2 22 1 3a b7  - 31 : 11 < 16
-    Send HEX:  e8 5 0 0 25 85 
-    Received:  e8 68 1 c 10 ff ff ff ff 3 0 84 46 ff ff ff ff a0 39  - 64 : 19 < 25
-    Send HEX:  e8 8 16 0 ba 26 
-    Received:  e8 80 24 0 0 0 0 80 24 0 0 0 0 b1 8b  - 47 : 15 < 21
+    Send HEX:  e8 0 4f b0
+    Received:  e8 0 4f b0  - 11 : 4 < 4
+    Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85
+    Received:  e8 0 4f b0  - 12 : 4 < 4
+    Send HEX:  e8 4 0 f3 34
+    Received:  e8 36 5 16 3 16 2 22 1 48 d4  - 21 : 11 < 11
+    Send HEX:  e8 5 0 0 25 85
+    Received:  e8 68 1 59 10 ff ff ff ff 3 0 63 4d ff ff ff ff 47 7a  - 36 : 19 < 19
+    Send HEX:  e8 8 16 0 ba 26
+    Received:  e8 80 22 0 0 0 0 80 22 0 0 0 0 27 3  - 24 : 15 < 15
     Send HEX:  e8 8 16 11 7a 2a 
-    Received:  e8 0 0 0 0 d9 57 0 0 0 f8 1c  - 38 : 12 < 18
+    Received:  e8 0 0 0 0 75 58 0 0 0 6b 10  - 19 : 12 < 12
     */
 
     delay(8000);
