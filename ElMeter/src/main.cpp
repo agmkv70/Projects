@@ -5,7 +5,7 @@
 //SimpleTimer timer;
 
 //#define HardSerial
-#define testMode
+//#define testMode
 
 //-------- порты для CAN
 #ifndef HardSerial
@@ -254,7 +254,7 @@ byte ElMeter_OpenUser(byte usr){
     return res;
 }
 
-byte ElMeter_GetTime(byte usr){
+byte ElMeter_GetTime(){
   byte res;
   res = test_send(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
@@ -276,7 +276,7 @@ byte ElMeter_GetTime(byte usr){
     return res;
 }
 
-byte ElMeter_GetEnergyA(unsigned long *Active){
+byte ElMeter_GetEnergyA(float *Active){
   byte res;
   res = test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
   //4x4 bytes (A+,A-,R+,R-)
@@ -288,8 +288,9 @@ byte ElMeter_GetEnergyA(unsigned long *Active){
       byte b2 = response[2];
       byte b3 = response[3];
       byte b4 = response[4];
-      //b2_b1_b4_b3
-      *Active = (unsigned long)b2<<24 || (unsigned long)b1<<16 || (unsigned long)b4<<8 || (unsigned long)b3; 
+      //b2_b1_b4_b3     68 1 59 10 > 01681059
+      unsigned long _Active = (unsigned long)b2<<24 | (unsigned long)b1<<16 | (unsigned long)b4<<8 | (unsigned long)b3; 
+      *Active = (float)_Active/1000;
       
       return 1; //OK
     }else{
@@ -311,22 +312,22 @@ byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
       byte b2 = response[5];
       byte b3 = response[6];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      unsigned long P = (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph1 = P;
+      unsigned long P = (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph1 = (float)P/1000;
       
       b1 = response[7];
       b2 = response[8];
       b3 = response[9];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      P = (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph2 = P;
+      P = (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph2 = (float)P/1000;
       
       b1 = response[10];
       b2 = response[11];
       b3 = response[12];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      P = (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph3 = P;
+      P = (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph3 = (float)P/1000;
       
       return 1; //OK
     }else{
@@ -348,22 +349,22 @@ byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
       byte b2 = response[2];
       byte b3 = response[3];
       //b1_b3_b2
-      unsigned long U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph1 = U;
+      unsigned long U = (unsigned long)b1<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph1 = (float)U/100;
       
       b1 = response[4];
       b2 = response[5];
       b3 = response[6];
       //b1_b3_b2
-      U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph2 = U;
+      U = (unsigned long)b1<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph2 = (float)U/100;
       
       b1 = response[7];
       b2 = response[8];
       b3 = response[9];
       //b1_b3_b2
-      U = (unsigned long)b1<<16 || (unsigned long)b3<<8 || (unsigned long)b2;
-      *Ph3 = U;
+      U = (unsigned long)b1<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph3 = (float)U/100;
       
       return 1; //OK
     }else{
@@ -642,32 +643,74 @@ void setup(){
 }
 
 void loop(){ 
-    Serial.println();
+  Serial.println();
 
-    test_send(test_cmd, sizeof(test_cmd), 4);
-    test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
-    test_send(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
-    //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
-    //Результат: 16:14:43 среда 27 февраля 2008 года, зима
-    test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
-    test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
-    test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
-    /*
-    Send HEX:  e8 0 4f b0
-    Received:  e8 0 4f b0  - 11 : 4 < 4
-    Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85
-    Received:  e8 0 4f b0  - 12 : 4 < 4
-    Send HEX:  e8 4 0 f3 34
-    Received:  e8 36 5 16 3 16 2 22 1 48 d4  - 21 : 11 < 11
-    Send HEX:  e8 5 0 0 25 85
-    Received:  e8 68 1 59 10 ff ff ff ff 3 0 63 4d ff ff ff ff 47 7a  - 36 : 19 < 19
-    Send HEX:  e8 8 16 0 ba 26
-    Received:  e8 80 22 0 0 0 0 80 22 0 0 0 0 27 3  - 24 : 15 < 15
-    Send HEX:  e8 8 16 11 7a 2a 
-    Received:  e8 0 0 0 0 75 58 0 0 0 6b 10  - 19 : 12 < 12
-    */
-
-    delay(8000);
+  byte res = ElMeter_TestConnection();
+  Serial.print("Test connection: ");
+  Serial.println(res);
   
+  res = ElMeter_OpenUser(1);
+  Serial.print("Login user1: ");
+  Serial.println(res);
+
+  res = ElMeter_GetTime();
+  Serial.print("Get time: ");
+  Serial.println(res);
+  
+  float Wh;
+  res = ElMeter_GetEnergyA(&Wh);
+  Serial.print("Wh: ");
+  Serial.print(res);
+  Serial.print(" = ");
+  Serial.println(Wh);
+  
+  float ph1,ph2,ph3;
+  res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
+  Serial.print("Power: ");
+  Serial.print(res);
+  Serial.print("; 1= ");
+  Serial.print(ph1);
+  Serial.print(" 2= ");
+  Serial.print(ph2);
+  Serial.print(" 3= ");
+  Serial.println(ph3);
+  
+  res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
+  Serial.print("Voltage: ");
+  Serial.print(res);
+  Serial.print("; 1= ");
+  Serial.print(ph1);
+  Serial.print(" 2= ");
+  Serial.print(ph2);
+  Serial.print(" 3= ");
+  Serial.println(ph3);
+
+  /*
+  test_send(test_cmd, sizeof(test_cmd), 4);
+  test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
+  test_send(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
+  //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
+  //Результат: 16:14:43 среда 27 февраля 2008 года, зима
+  test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
+  test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
+  test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
+  */
+  /*
+  Send HEX:  e8 0 4f b0
+  Received:  e8 0 4f b0  - 11 : 4 < 4
+  Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85
+  Received:  e8 0 4f b0  - 12 : 4 < 4
+  Send HEX:  e8 4 0 f3 34
+  Received:  e8 36 5 16 3 16 2 22 1 48 d4  - 21 : 11 < 11
+  Send HEX:  e8 5 0 0 25 85
+  Received:  e8 68 1 59 10 ff ff ff ff 3 0 63 4d ff ff ff ff 47 7a  - 36 : 19 < 19
+  Send HEX:  e8 8 16 0 ba 26
+  Received:  e8 80 22 0 0 0 0 80 22 0 0 0 0 27 3  - 24 : 15 < 15
+  Send HEX:  e8 8 16 11 7a 2a 
+  Received:  e8 0 0 0 0 75 58 0 0 0 6b 10  - 19 : 12 < 12
+  */
+  
+  delay(8000);
+
   //timer.run();
 }
