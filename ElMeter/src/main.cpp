@@ -26,7 +26,7 @@ byte getTime_cmd[] = {4,0};    // read=4, cur.time=0
 byte setTime_cmd[] = {3,0x0C, 0,0,0,0,0,0,0,0}; // ss,mm,hh,wd,MM,YY,(s=0/w=1)
 byte setTimeCorr_cmd[] = {3,0x0D, 0,0,0};       // ss,mm,hh +-4min/day
 
-byte getEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum)
+byte getEnergy_cmd[] = {5,0x00,0};    // readEnergy=5, from=0+month=0, tarif=0(sum=0)
 byte curent_PSum_cmd[] = {8,0x16,0x00}; //phase sum=0x00, 0x01-1phase,...
 //byte curent_P1_cmd[] = {8,0x14,0x01}; //Power 1 phase
 //byte curent_P2_cmd[] = {8,0x14,0x02};
@@ -254,11 +254,14 @@ byte ElMeter_OpenUser(byte usr){
     return res;
 }
 
-byte HDtoDec(byte x){
+byte HD2Dec(byte x){
   return (x>>4)*10 + (x&0xF);
 }
+byte Dec2HD(byte x){
+  return (x/10)<<4 | (x%10);
+}
   
-byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss){
+byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte *sumerWinter){
   byte res;
   res = test_send(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
@@ -266,12 +269,13 @@ byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss){
     
   if(res>0){
     if(response[0]==address[0]){
-      *ss = HDtoDec(response[1]);
-      *mm = HDtoDec(response[2]);
-      *hh = HDtoDec(response[3]);
-      *DD = HDtoDec(response[5]);
-      *MM = HDtoDec(response[6]);
-      *YY = HDtoDec(response[7]);
+      *ss = HD2Dec(response[1]);
+      *mm = HD2Dec(response[2]);
+      *hh = HD2Dec(response[3]);
+      *DD = HD2Dec(response[5]);
+      *MM = HD2Dec(response[6]);
+      *YY = HD2Dec(response[7]);
+      *sumerWinter = HD2Dec(response[8]);
       return 1; //OK
     }else{
       return -10; //wrong answear
@@ -280,8 +284,51 @@ byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss){
     return res;
 }
 
-byte ElMeter_GetEnergyA(float *Active){
+byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerWinter){
+  setTime_cmd[2] = Dec2HD(ss);
+  setTime_cmd[3] = Dec2HD(mm);
+  setTime_cmd[4] = Dec2HD(hh);
+  setTime_cmd[6] = Dec2HD(DD);
+  setTime_cmd[7] = Dec2HD(MM);
+  setTime_cmd[8] = Dec2HD(YY);
+  setTime_cmd[9] = sumerWinter;
+  
   byte res;
+  res = test_send(setTime_cmd, sizeof(setTime_cmd), 4);
+  //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
+  //Результат: 16:14:43 среда 27 февраля 2008 года, зима
+    
+  if(res>0){
+    if(response[0]==address[0]){
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_SetTime(byte hh,byte mm,byte ss){
+  setTime_cmd[2] = Dec2HD(ss);
+  setTime_cmd[3] = Dec2HD(mm);
+  setTime_cmd[4] = Dec2HD(hh);
+  
+  byte res;
+  res = test_send(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
+    
+  if(res>0){
+    if(response[0]==address[0]){
+      return 1; //OK
+    }else{
+      return -10; //wrong answear
+    }
+  }else
+    return res;
+}
+
+byte ElMeter_GetEnergyA(float *Active,byte tariff){
+  byte res;
+  getEnergy_cmd[2]=tariff;
   res = test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
   //4x4 bytes (A+,A-,R+,R-)
   
@@ -378,249 +425,6 @@ byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
     return res;
 }
 
-/*
-void send(byte *cmd, int s_cmd) // отправка-получение в обычном режиме {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
-{
-
-  int s_address = sizeof(address);
-  int s_address_cmd = s_address + s_cmd;
-  int s_address_cmd_crc = s_address_cmd + 2;
-
-  byte address_cmd[s_address_cmd];
-  byte address_cmd_crc[s_address_cmd_crc];
-
-  int pos = 0;
-  for (int i = 0; i < s_address; i++)
-  {
-    address_cmd[pos] = address[i];
-    address_cmd_crc[pos] = address[i];
-    pos++;
-  }
-
-  for (int i = 0; i < s_cmd; i++)
-  {
-    address_cmd[pos] = cmd[i];
-    address_cmd_crc[pos] = cmd[i];
-    pos++;
-  }
-
-  unsigned int crc = crc16MODBUS(address_cmd, s_address_cmd);
-  unsigned int crc1 = crc & 0xFF;
-  unsigned int crc2 = (crc >> 8) & 0xFF;
-
-  address_cmd_crc[pos] = crc1;
-  pos++;
-  address_cmd_crc[pos] = crc2;
-
-  digitalWrite(SerialControl, RS485Transmit); // Переключает RS485 на передачу
-  delay(100);
-
-  for (int i = 0; i < s_address_cmd_crc; i++)
-  {
-    RS485Serial.write(address_cmd_crc[i]);
-  }
-
-  digitalWrite(SerialControl, RS485Receive); // Переключает RS485 на прием
-  delay(100);
-
-  for (unsigned int i = 0; i < (sizeof(response)); i++) //
-  {
-    response[i] = 0; // обнуляет массив
-  }
-
-  if (RS485Serial.available()) // получаем: |Адрес счетчика | Запрос на который отвечаем | Ответ |	CRC16 (Modbus)|
-  {
-
-    byte i = 0;
-    while (RS485Serial.available())
-    {
-      byteReceived = RS485Serial.read(); //
-      delay(10);
-      response[i++] = byteReceived;
-    }
-  }
-}
-
-float getEnergyT1() // расшифровает полученное в данные энергии
-{
-  send(energy, sizeof(energy));
-  Serial.println("");
-  Serial.print("getEnergyT1 response[i] (HEX): ");
-  String x123 = "";
-  for (int i = 5; i < 8; i++) // выбирает в массиве показатели энергии T1
-  {
-    Serial.print(response[i], HEX);
-    Serial.print(" ");
-    String temp_x = String(response[i], HEX);
-    int x = temp_x.toInt();
-    if (x < 10)
-    {
-      x123 += "0";
-      x123 += String(response[i], HEX);
-    }
-    else
-    {
-      x123 += String(response[i], HEX);
-    }
-  }
-
-  float y123 = x123.toFloat();
-  String temp_y4 = String(response[8], HEX);
-  float y4 = (temp_y4.toFloat()) / 100;
-  float thenumber = y123 + y4;
-
-  return thenumber;
-}
-
-float getEnergyT2() // расшифровает полученное в данные энергии
-{
-  send(energy, sizeof(energy));
-  Serial.println("");
-  Serial.print("getEnergyT2 response[i] (HEX): ");
-  String x123 = "";
-  for (int i = 9; i < 12; i++) // выбирает в массиве показатели энергии T2
-  {
-    Serial.print(response[i], HEX);
-    Serial.print(" ");
-    String temp_x = String(response[i], HEX);
-    int x = temp_x.toInt();
-    if (x < 10)
-    {
-      x123 += "0";
-      x123 += String(response[i], HEX);
-    }
-    else
-    {
-      x123 += String(response[i], HEX);
-    }
-  }
-
-  float y123 = x123.toFloat();
-  String temp_y4 = String(response[12], HEX);
-  float y4 = (temp_y4.toFloat()) / 100;
-  float thenumber = y123 + y4;
-
-  return thenumber;
-}
-
-String get_battery() // расшифровает полученное в данные батарейки
-{
-  send(battery, sizeof(battery));
-  String battery_return = "";
-
-  Serial.println("");
-  Serial.print("battery response[i], HEX  ");
-  for (int i = 5; i < 7; i++) // выбирает в массиве показатели батарейки
-  {
-    Serial.print(response[i], HEX);
-    Serial.print(" ");
-    battery_return += String(response[i], HEX);
-  }
-
-  return battery_return;
-}
-
-String get_Power()
-{
-  // дописать по аналогии
-  return String("");
-}
-
-String get_Voltage()
-{
-  // дописать по аналогии
-  return String("");
-}
-
-// остальные комманды дописать по аналогии
-
-void Mercury_Slow_Data() // для запросов не требующих частый сбор
-{
-  String temp_battery = get_battery();
-  var_battery = (temp_battery.toFloat()) / 100;
-  Serial.println(" ");
-  Serial.print("var_battery (float): ");
-  Serial.print(var_battery);
-  Serial.println(" ");
-
-  varenergyT1 = getEnergyT1();
-  Serial.println(" ");
-  Serial.print("varenergyT1 (float): ");
-  Serial.print(varenergyT1);
-  Serial.println(" ");
-
-  varenergyT2 = getEnergyT2();
-  Serial.println(" ");
-  Serial.print("varenergyT2 (float): ");
-  Serial.print(varenergyT2);
-  Serial.println(" ");
-
-  varenergy_sum = varenergyT1 + varenergyT2;
-  Serial.println(" ");
-  Serial.print("varenergy SUM (float): ");
-  Serial.print(varenergy_sum);
-  Serial.println(" ");
-}
-
-void Mercury_Fast_Data() // для запросов и действий требующих частый сбор
-{
-
-  // тут частые запросы
-  String temp_Power = get_Power();
-  varPower = temp_Power.toInt();
-  String temp_Voltage = get_Voltage();
-  varVoltage = temp_Voltage.toInt();
-
-  varMoneySpent = (varenergy_sum - varMoneyStart) * tarif; // расчет расхода от начального периода в рублях
-
-  //Далее расчет разницы для показателя моментальной мощности ватт, чтобы наглядно видеть сколько какой прибор расходует при включении или отключении
-  // нужно сначала написать команду чтобы запросить счетчик
-
-  varPowerDif = varPower - varPower1;
-  varPowerDif = abs(varPowerDif);
-  if (firstRun == 1)
-  {
-    varPowerDif = 0;
-    Mercury_Slow_Data();
-  }
-
-  if (varPowerDif < 5)
-  {
-    varPower2 = varPower1;
-    power_hold++;
-    // Serial.println("(varPower2)");
-    // Serial.println(varPower2);
-  }
-
-  if (varPowerDif > 50 && power_hold > 5)
-  {
-    varPower3 = varPower2;
-    power_change = 1;
-    power_hold = 0;
-    //Serial.println("(varPower3)");
-    //Serial.println(varPower3);
-  }
-
-  if (power_change == 1 && power_hold > 5 && (abs(varPower2 - varPower3)) > 100)
-  {
-    varPowerDifBlynk = varPower2 - varPower3;
-    // Serial.println("(varPowerDifBlynk)");
-    // Serial.println(varPowerDifBlynk);
-    Blynk.virtualWrite(BlynkVP_varPowerDifBlynk, varPowerDifBlynk);
-    power_change = 0;
-  }
-  firstRun = 0;
-  varPower1 = varPower;
-
-  Blynk.virtualWrite(BlynkVP_varCurrent, varCurrent);       // отправляет в блинк силу тока
-  Blynk.virtualWrite(BlynkVP_varVoltage, varVoltage);       // отправляет напряжение в блинк
-  Blynk.virtualWrite(BlynkVP_varPower, varPower);           // отправляет в блинк мощность тока
-  Blynk.virtualWrite(BlynkVP_varEnergySUM, varenergy_sum);  // отправляет в блинк расход электроэнергии по Т1
-  Blynk.virtualWrite(BlynkVP_varMoneySpent, varMoneySpent); // отправляет в блинк расхд в рублях
-  Blynk.virtualWrite(BlynkVP_varBattery, var_battery);      // отправляет в блинк сколько вольт осталось в батарейке
-}
-*/
-
 void setup(){ 
   //Serial.begin(9600);
   Serial.begin(115200);
@@ -657,8 +461,8 @@ void loop(){
   Serial.print("Login user1: ");
   Serial.println(res);
 
-  byte YY,MM,DD,hh,mm,ss;
-  res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss);
+  byte YY,MM,DD,hh,mm,ss,sumerWinter;
+  res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss,&sumerWinter);
   Serial.print("Get time: ");
   Serial.print(res);
   Serial.print(" ");
@@ -676,22 +480,32 @@ void loop(){
   Serial.println();
   
   float Wh;
-  res = ElMeter_GetEnergyA(&Wh);
+  res = ElMeter_GetEnergyA(&Wh,0);
   Serial.print("Wh: ");
+  Serial.print(res,3);
+  Serial.print(" = ");
+  Serial.println(Wh,3);
+  res = ElMeter_GetEnergyA(&Wh,1);
+  Serial.print("Wh1: ");
   Serial.print(res);
   Serial.print(" = ");
-  Serial.println(Wh);
+  Serial.println(Wh,3);
+  res = ElMeter_GetEnergyA(&Wh,2);
+  Serial.print("Wh2: ");
+  Serial.print(res);
+  Serial.print(" = ");
+  Serial.println(Wh,3);
   
   float ph1,ph2,ph3;
   res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
   Serial.print("Power: ");
   Serial.print(res);
   Serial.print("; 1= ");
-  Serial.print(ph1);
+  Serial.print(ph1,3);
   Serial.print(" 2= ");
-  Serial.print(ph2);
+  Serial.print(ph2,3);
   Serial.print(" 3= ");
-  Serial.println(ph3);
+  Serial.println(ph3,3);
   
   res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
   Serial.print("Voltage: ");
