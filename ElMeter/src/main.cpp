@@ -308,7 +308,7 @@ byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerW
     return res;
 }
 
-byte ElMeter_SetTime(byte hh,byte mm,byte ss){
+byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
   setTime_cmd[2] = Dec2HD(ss);
   setTime_cmd[3] = Dec2HD(mm);
   setTime_cmd[4] = Dec2HD(hh);
@@ -448,6 +448,11 @@ void setup(){
   //pinMode(SerialControl, OUTPUT);
   /*pinMode(0, INPUT);
   pinMode(1, INPUT);*/
+
+  //byte res = ElMeter_SetTimeCorr(20,05,00);
+  //Serial.print("SetTime: ");
+  //Serial.println(res);
+
 }
 
 void loop(){ 
