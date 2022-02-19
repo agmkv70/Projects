@@ -3,8 +3,10 @@
 
 //#define testmode
 //#define testmodeCAN
-//#define MQTT_On
+#define WifiLED_On
+#define MQTT_On
 #define LocalBlynk_On
+#define ntptime
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
@@ -53,6 +55,14 @@ void testSendQueueMQTT(){
   //#endif
 }
 //#endif
+#endif
+
+#ifdef ntptime
+#include <time.h>
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600*2;
+const int   daylightOffset_sec = 3600;
 #endif
 
 void SendCANQueueError(){
@@ -167,7 +177,7 @@ void MQTTReconnect() {
     #endif
     
     //#ifdef testmode
-    MQTTClient.publish("HelloOnConnectTopic", "hello, its ESP in testMode!");
+    MQTTClient.publish("HelloOnConnectTopic", "hello, its ESP in MQTTReconnect()!");
     //#endif
     // ... and resubscribe
     MQTTClient.subscribe("/home/VPIN_Command/#");
@@ -212,6 +222,84 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive fr
     Serial.println(topic);
     #endif
   }
+}
+
+#endif
+
+#ifdef ntptime
+bool getLocalTime(struct tm * info, uint32_t ms=5000)
+{
+    uint32_t start = millis();
+    time_t now;
+    while((millis()-start) <= ms) {
+        time(&now);
+        localtime_r(&now, info);
+        if(info->tm_year > (2016 - 1900)){
+            return true;
+        }
+        delay(10);
+    }
+    return false;
+}
+
+void printLocalTime(){
+  struct tm timeinfo;
+  //MQTTClient.publish("terminal", "print time...");
+
+  if(!getLocalTime(&timeinfo)){
+    #ifdef MQTT_On
+    //Serial.println("Failed to obtain time");
+    MQTTClient.publish("terminal", "Failed to obtain time!");
+    #endif
+    return;
+  }
+
+  #ifdef MQTT_On
+
+  //Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  char timeHour[3];
+  strftime(timeHour,3, "%H", &timeinfo);
+  //Serial.println(timeHour);
+  MQTTClient.publish("terminal", timeHour);
+
+  //char timeWeekDay[10];
+  //strftime(timeWeekDay,10, "%A", &timeinfo);
+  //Serial.println(timeWeekDay);
+  //MQTTClient.publish("terminal", timeWeekDay);
+  
+  char cstr[16];
+  itoa(timeinfo.tm_min, cstr, 10);
+  MQTTClient.publish("terminal", cstr);
+  
+  itoa(timeinfo.tm_sec, cstr, 10);
+  MQTTClient.publish("terminal", cstr);
+  
+  #endif
+  /*Serial.print("Day of week: ");
+  Serial.println(&timeinfo, "%A");
+  Serial.print("Month: ");
+  Serial.println(&timeinfo, "%B");
+  Serial.print("Day of Month: ");
+  Serial.println(&timeinfo, "%d");
+  Serial.print("Year: ");
+  Serial.println(&timeinfo, "%Y");
+  Serial.print("Hour: ");
+  Serial.println(&timeinfo, "%H");
+  Serial.print("Hour (12 hour format): ");
+  Serial.println(&timeinfo, "%I");
+  Serial.print("Minute: ");
+  Serial.println(&timeinfo, "%M");
+  Serial.print("Second: ");
+  Serial.println(&timeinfo, "%S");
+
+  Serial.println("Time variables");
+  char timeHour[3];
+  strftime(timeHour,3, "%H", &timeinfo);
+  Serial.println(timeHour);
+  char timeWeekDay[10];
+  strftime(timeWeekDay,10, "%A", &timeinfo);
+  Serial.println(timeWeekDay);
+  Serial.println();*/
 }
 #endif
 
@@ -284,6 +372,11 @@ void setup(){
   //digitalWrite(LPin,LOW);
   //delay(500);
   #endif
+
+  #ifdef ntptime
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  timer.setInterval(10000L,printLocalTime);
+  #endif
 }
 
 #ifdef WifiLED_On
@@ -311,9 +404,9 @@ void loop(){
   timer.run();
   checkReadCAN();
 
-  #ifdef WifiLED_On
-  if (WiFi.status() == WL_CONNECTED){
-    yLED=1;
+  //#ifdef WifiLED_On
+  //if (WiFi.status() == WL_CONNECTED){
+  //  yLED=1;
     
     #ifdef MQTT_On
     if (MQTTClient.connected())
@@ -321,7 +414,7 @@ void loop(){
     else
       MQTTReconnect();
     #endif
-  }else
-    yLED=2;
-  #endif
+  //}else
+  //  yLED=2;
+  //#endif
 }
