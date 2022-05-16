@@ -88,17 +88,17 @@ unsigned int crc16MODBUS(byte *s, int count){ // Расчет контрольн
 }
 
 #ifdef HardSerial
-void SerialCleanSwap(){
-  //clear read buffer
-  while(Serial.available()){
-    Serial.read();
+  void SerialCleanSwap(){
+    //clear read buffer
+    while(Serial.available()){
+      Serial.read();
+    }
+    Serial.flush(); //write everything
+    Serial.swap();
   }
-  Serial.flush(); //write everything
-  Serial.swap();
-}
-#endif
+#endif //HardSerial
 
-byte test_send(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+byte ElMeter_ExecQuery(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
   int s_address = sizeof(address);
   int s_address_cmd = s_address + s_cmd;
   int s_address_cmd_crc = s_address_cmd + 2;
@@ -224,7 +224,7 @@ byte test_send(byte *cmd, int s_cmd, byte responseLength){ // для тесто�
 }
 
 byte ElMeter_TestConnection(){
-  byte res = test_send(test_cmd, sizeof(test_cmd), 4);
+  byte res = ElMeter_ExecQuery(test_cmd, sizeof(test_cmd), 4);
   if(res>0){
     if(response[0]==address[0] && response[1]==0){
       return 1; //OK
@@ -238,9 +238,9 @@ byte ElMeter_TestConnection(){
 byte ElMeter_OpenUser(byte usr){
   byte res;
   if(usr==1){
-    res = test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
+    res = ElMeter_ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
   }else if(usr==2){
-    res = test_send(openUser_cmd2, sizeof(openUser_cmd2), 4);
+    res = ElMeter_ExecQuery(openUser_cmd2, sizeof(openUser_cmd2), 4);
   }else{
     return -100; //wrong usr parameter
   }
@@ -263,7 +263,7 @@ byte Dec2HD(byte x){
   
 byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte *sumerWinter){
   byte res;
-  res = test_send(getTime_cmd, sizeof(getTime_cmd), 11);
+  res = ElMeter_ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     
@@ -294,7 +294,7 @@ byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerW
   setTime_cmd[9] = sumerWinter;
   
   byte res;
-  res = test_send(setTime_cmd, sizeof(setTime_cmd), 4);
+  res = ElMeter_ExecQuery(setTime_cmd, sizeof(setTime_cmd), 4);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     
@@ -314,7 +314,7 @@ byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
   setTime_cmd[4] = Dec2HD(hh);
   
   byte res;
-  res = test_send(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
+  res = ElMeter_ExecQuery(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
     
   if(res>0){
     if(response[0]==address[0]){
@@ -326,10 +326,10 @@ byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
     return res;
 }
 
-byte ElMeter_GetEnergyA(float *Active,byte tariff){
+byte ElMeter_GetEnergyA(float *ActiveWh,byte tariff){
   byte res;
   getEnergy_cmd[2]=tariff;
-  res = test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
+  res = ElMeter_ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
   //4x4 bytes (A+,A-,R+,R-)
   
   if(res>0){
@@ -341,7 +341,7 @@ byte ElMeter_GetEnergyA(float *Active,byte tariff){
       byte b4 = response[4];
       //b2_b1_b4_b3     68 1 59 10 > 01681059
       unsigned long _Active = (unsigned long)b2<<24 | (unsigned long)b1<<16 | (unsigned long)b4<<8 | (unsigned long)b3; 
-      *Active = (float)_Active/1000;
+      *ActiveWh = (float)_Active/1000;
       
       return 1; //OK
     }else{
@@ -353,7 +353,7 @@ byte ElMeter_GetEnergyA(float *Active,byte tariff){
 
 byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
   byte res;
-  res = test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
+  res = ElMeter_ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
   //4x3 bytes (sum,ph1,ph2,ph3)
   
   if(res>0){
@@ -390,7 +390,7 @@ byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
 
 byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
   byte res;
-  res = test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
+  res = ElMeter_ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
   //3x3 (ph1,ph2,ph3)
   
   if(res>0){
@@ -428,11 +428,12 @@ byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
 void setup(){ 
   //Serial.begin(9600);
   Serial.begin(115200);
+  
   #ifdef HardSerial
   #else
     CANSerial.begin(9600);
     if (!CANSerial) { // If the object did not initialize, then its configuration is invalid
-      Serial.println("!!Invalid SoftwareSerial pin configuration, check config!!"); 
+      Serial.println("!!Can't connect to ElMeter! Probably invalid SoftwareSerial pin configuration!!"); 
       int on=1;
       while (1) { // Don't continue with invalid configuration
         digitalWrite(LED_BUILTIN,on);
@@ -523,14 +524,14 @@ void loop(){
   Serial.println(ph3);
 
   /*
-  test_send(test_cmd, sizeof(test_cmd), 4);
-  test_send(openUser_cmd1, sizeof(openUser_cmd1), 4);
-  test_send(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
+  ElMeter_ExecQuery(test_cmd, sizeof(test_cmd), 4);
+  ElMeter_ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
+  ElMeter_ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
-  test_send(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
-  test_send(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
-  test_send(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
+  ElMeter_ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
+  ElMeter_ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
+  ElMeter_ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
   */
   /*
   Send HEX:  e8 0 4f b0

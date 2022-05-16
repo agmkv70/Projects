@@ -69,8 +69,10 @@ void SendCANQueueError(){
 }
 
 /////////////////////////////////////////////////////////////////
-  
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+
+//Send value to Blynk server via Wi-Fi (called after we received CAN data)
+char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat) 
+{
   Blynk.virtualWrite(vPinNumber, vPinValueFloat);
 
   #ifdef MQTT_On
