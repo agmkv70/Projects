@@ -59,7 +59,6 @@ void testSendQueueMQTT(){
 
 #ifdef ntptime
 #include <time.h>
-
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 3600*2;
 const int   daylightOffset_sec = 3600;
@@ -111,8 +110,9 @@ BLYNK_WRITE_DEFAULT() {
   }
 }
 
-//when from CANbus to App??
-//BLYNK_READ_DEFAULT() { // This is called for all virtual pins, that don't have BLYNK_READ handler
+
+//BLYNK_READ_DEFAULT() //when from CANbus to App??
+//{ // This is called for all virtual pins, that don't have BLYNK_READ handler
 //   // Generate random response
 //   int val = random(0, 100);
 //   Serial.print("output V");
@@ -120,7 +120,7 @@ BLYNK_WRITE_DEFAULT() {
 //   Serial.print(": ");
 //   Serial.println(val);
 //   Blynk.virtualWrite(request.pin, val);
-// }
+//}
 
 // This function will run every time Blynk connection is established
 BLYNK_CONNECTED() {
@@ -224,7 +224,7 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive fr
   }
 }
 
-#endif
+#endif //MQTT_On
 
 #ifdef ntptime
 bool getLocalTime(struct tm * info, uint32_t ms=5000)
@@ -301,12 +301,30 @@ void printLocalTime(){
   Serial.println(timeWeekDay);
   Serial.println();*/
 }
-#endif
+#endif //ntptime
 
 #ifdef WifiLED_On
-#define LPin D8
-void yLEDBlink();
-#endif
+  #define LPin D8
+  void yLEDBlink();
+  int yLED=1,yblink=0;
+  void yLEDBlink(){
+    if(yLED==0){
+      digitalWrite(LPin,LOW);
+    }else if(yLED==1){
+      digitalWrite(LPin,HIGH);
+    }else{ //2==blink
+      if(yblink==0){
+        digitalWrite(LPin,HIGH);
+        yblink=1;
+      }else{
+        yblink=0;
+        digitalWrite(LPin,LOW);
+      } 
+
+    }
+  }
+#endif //WifiLED_On
+
 
 void setup(){
   #ifdef testmode
@@ -343,61 +361,42 @@ void setup(){
   //Blynk.begin(auth, ssid, pass);
   // You can also specify server:
   #ifndef LocalBlynk_On
-  Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
+    Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
   #endif
   #ifdef LocalBlynk_On
-  Blynk.begin(auth, ssid, pass, IPAddress(192,168,0,130), 8080);
+    Blynk.begin(auth, ssid, pass, IPAddress(192,168,0,130), 8080);
   #endif
 
   timer.setInterval(5000L, SendCANQueueError);
 
   #ifdef MQTT_On
-  MQTTClient.setServer(mqtt_server, mqtt_port);
-  MQTTClient.setCallback(MQTTCallback);
-  
-  //timer.setInterval(1L, checkReadCAN);
-  #ifdef testmode
-    timer.setInterval(10000L, testSendQueue);
-  #endif
-  //#ifndef testmode
-  //  timer.setInterval(60000L, testSendQueue);
-  //#endif
+    MQTTClient.setServer(mqtt_server, mqtt_port);
+    MQTTClient.setCallback(MQTTCallback);
+    
+    //timer.setInterval(1L, checkReadCAN);
+    #ifdef testmode
+      timer.setInterval(10000L, testSendQueue);
+    #endif
+    //#ifndef testmode
+    //  timer.setInterval(60000L, testSendQueue);
+    //#endif
   #endif
 
   #ifdef WifiLED_On
-  timer.setInterval(300,yLEDBlink);
-  pinMode(LPin,OUTPUT);
-  //digitalWrite(LPin,HIGH);
-  //delay(500);
-  //digitalWrite(LPin,LOW);
-  //delay(500);
+    timer.setInterval(300,yLEDBlink);
+    pinMode(LPin,OUTPUT);
+    //digitalWrite(LPin,HIGH);
+    //delay(500);
+    //digitalWrite(LPin,LOW);
+    //delay(500);
   #endif
 
   #ifdef ntptime
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  timer.setInterval(10000L,printLocalTime);
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    timer.setInterval(10000L,printLocalTime);
   #endif
 }
 
-#ifdef WifiLED_On
-int yLED=1,yblink=0;
-void yLEDBlink(){
-  if(yLED==0){
-    digitalWrite(LPin,LOW);
-  }else if(yLED==1){
-    digitalWrite(LPin,HIGH);
-  }else{ //2==blink
-    if(yblink==0){
-      digitalWrite(LPin,HIGH);
-      yblink=1;
-    }else{
-      yblink=0;
-      digitalWrite(LPin,LOW);
-    } 
-
-  }
-}
-#endif
 
 void loop(){
   Blynk.run();
