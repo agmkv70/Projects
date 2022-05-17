@@ -217,40 +217,40 @@ void checkReadCAN() {
   CAN0.readMsgBuf(&rxId, &dataLen, rxBuf);      // Read data: len = data length, buf = data byte(s)
 
   #ifdef testmodeCAN
-  //print received message to Serial:
-  Serial.print( "Received message: ");
-  Serial.print(((rxId & 0x80000000) == 0x80000000)?"Extended ID: ":"Standard ID:");
-  Serial.print(rxId);
-  Serial.print(" f=");
-  Serial.print(*(float*)(rxBuf+1));
-  Serial.println();
-  // if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
-  //   Serial.print(" REMOTE REQUEST FRAME");
-  // } else {
-  for(byte i = 0; i<dataLen; i++){
-      Serial.print(" ");
-      Serial.print(rxBuf[i]);
-  }
-  //}
-  Serial.println();
+    //print received message to Serial:
+    Serial.print( "Received message: ");
+    Serial.print(((rxId & 0x80000000) == 0x80000000)?"Extended ID: ":"Standard ID:");
+    Serial.print(rxId);
+    Serial.print(" f=");
+    Serial.print(*(float*)(rxBuf+1));
+    Serial.println();
+    // if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
+    //   Serial.print(" REMOTE REQUEST FRAME");
+    // } else {
+    for(byte i = 0; i<dataLen; i++){
+        Serial.print(" ");
+        Serial.print(rxBuf[i]);
+    }
+    //}
+    Serial.println();
   #endif
 
-  if(dataLen<2)
-    return; //we need at least 5 bytes (1 =number of VPIN + 4 =float value (sizeof(float)=4 bytes))
-  //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
-  //vPinValue = *((float*)(rxBuf+1));
+  //if(dataLen < 2)
+  if(dataLen == 5){ //we need 5 bytes (1 =byte VPIN  +  4 =sizeof(float))
+    //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
+    //vPinValue = *((float*)(rxBuf+1));
 
-  //if(*rxBuf==VPIN_BLYNK_TERMINAL){
-  //  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
-  //}else{
-  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
-  //}
+    //if(*rxBuf==VPIN_BLYNK_TERMINAL){
+    //  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+    //}else{
+    setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+    //}
+  }
 }
 
-//char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat); 
-////////////must be implemented!
-// for example:
-//{
+//Called after we received CAN data:
+//char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+////////////Must be implemented in board code! For example:
   //	switch(vPinNumber){
   //		case VPIN_STATUS:
   //			STATUS = (int)vPinValueFloat;
