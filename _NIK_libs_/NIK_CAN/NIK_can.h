@@ -207,7 +207,7 @@ void MainCycle_StartEvent();
     // 	timer.setTimeout(1000L, MainCycle_ReadTempEvent); //start once after timeout
 // }
 
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat);
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat);
 
 void checkReadCAN() {
   if(digitalRead(CAN_PIN_INT)==HIGH){ //HIGH = no CAN received messages in buffer
@@ -243,13 +243,13 @@ void checkReadCAN() {
     //if(*rxBuf==VPIN_BLYNK_TERMINAL){
     //  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
     //}else{
-    setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+    ProcessReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
     //}
   }
 }
 
 //Called after we received CAN data:
-//char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+//char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 ////////////Must be implemented in board code! For example:
   //	switch(vPinNumber){
   //		case VPIN_STATUS:

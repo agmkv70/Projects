@@ -111,3 +111,14 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_OutdoorAirQ_IAQ_accuracy 99 //0-starting; 1-too stable env; 2-(re)calibrating; 3-working
 
 #define VPIN_CANQueueError 100 //CANQueueError on Wifi-ESP8266
+
+//////ElMeter
+#define VPIN_ElMeter_EnergyKWh     110
+#define VPIN_ElMeter_P1     111
+#define VPIN_ElMeter_P2     112
+#define VPIN_ElMeter_P3     113
+#define VPIN_ElMeter_V1     114
+#define VPIN_ElMeter_V2     115
+#define VPIN_ElMeter_V3     116
+
+

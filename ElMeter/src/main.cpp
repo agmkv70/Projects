@@ -2,12 +2,15 @@
 #include <SimpleTimer.h>
 #include <SoftwareSerial.h>
 
-//SimpleTimer timer;
+#define CAN_PIN_INT   9    
+#define CAN_PIN_CS   10 
+#include <NIK_defs.h>
+#include <NIK_can.h>
 
 //#define HardSerial
 //#define testMode
 
-//-------- порты для CAN
+//-------- CAN to meter
 #ifndef HardSerial
 #define SSerialTx 3     // was 1
 #define SSerialRx 2     // was 0
@@ -98,7 +101,7 @@ unsigned int crc16MODBUS(byte *s, int count){ // Расчет контрольн
   }
 #endif //HardSerial
 
-byte ElMeter_ExecQuery(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+byte ElMeter__ExecQuery(byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
   int s_address = sizeof(address);
   int s_address_cmd = s_address + s_cmd;
   int s_address_cmd_crc = s_address_cmd + 2;
@@ -224,7 +227,7 @@ byte ElMeter_ExecQuery(byte *cmd, int s_cmd, byte responseLength){ // для т�
 }
 
 byte ElMeter_TestConnection(){
-  byte res = ElMeter_ExecQuery(test_cmd, sizeof(test_cmd), 4);
+  byte res = ElMeter__ExecQuery(test_cmd, sizeof(test_cmd), 4);
   if(res>0){
     if(response[0]==address[0] && response[1]==0){
       return 1; //OK
@@ -238,9 +241,9 @@ byte ElMeter_TestConnection(){
 byte ElMeter_OpenUser(byte usr){
   byte res;
   if(usr==1){
-    res = ElMeter_ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
+    res = ElMeter__ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
   }else if(usr==2){
-    res = ElMeter_ExecQuery(openUser_cmd2, sizeof(openUser_cmd2), 4);
+    res = ElMeter__ExecQuery(openUser_cmd2, sizeof(openUser_cmd2), 4);
   }else{
     return -100; //wrong usr parameter
   }
@@ -263,7 +266,7 @@ byte Dec2HD(byte x){
   
 byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte *sumerWinter){
   byte res;
-  res = ElMeter_ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11);
+  res = ElMeter__ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     
@@ -294,7 +297,7 @@ byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerW
   setTime_cmd[9] = sumerWinter;
   
   byte res;
-  res = ElMeter_ExecQuery(setTime_cmd, sizeof(setTime_cmd), 4);
+  res = ElMeter__ExecQuery(setTime_cmd, sizeof(setTime_cmd), 4);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
     
@@ -314,7 +317,7 @@ byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
   setTime_cmd[4] = Dec2HD(hh);
   
   byte res;
-  res = ElMeter_ExecQuery(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
+  res = ElMeter__ExecQuery(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
     
   if(res>0){
     if(response[0]==address[0]){
@@ -329,7 +332,7 @@ byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
 byte ElMeter_GetEnergyA(float *ActiveWh,byte tariff){
   byte res;
   getEnergy_cmd[2]=tariff;
-  res = ElMeter_ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
+  res = ElMeter__ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
   //4x4 bytes (A+,A-,R+,R-)
   
   if(res>0){
@@ -353,13 +356,13 @@ byte ElMeter_GetEnergyA(float *ActiveWh,byte tariff){
 
 byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
   byte res;
-  res = ElMeter_ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
+  res = ElMeter__ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
   //4x3 bytes (sum,ph1,ph2,ph3)
   
   if(res>0){
     if(response[0]==address[0]){
       
-      byte b1 = response[4];
+      byte b1;// = response[4];
       byte b2 = response[5];
       byte b3 = response[6];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
@@ -390,7 +393,7 @@ byte ElMeter_GetInstantPower(float *Ph1,float *Ph2,float *Ph3){
 
 byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
   byte res;
-  res = ElMeter_ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
+  res = ElMeter__ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
   //3x3 (ph1,ph2,ph3)
   
   if(res>0){
@@ -425,12 +428,101 @@ byte ElMeter_GetInstantVoltage(float *Ph1,float *Ph2,float *Ph3){
     return res;
 }
 
-void setup(){ 
-  //Serial.begin(9600);
-  Serial.begin(115200);
+///////////////////////////////////////////////////
+void Send2ServerElMeterData(){
   
-  #ifdef HardSerial
-  #else
+  byte res = ElMeter_OpenUser(1);
+
+  float EnergyKWh;
+  res = ElMeter_GetEnergyA(&EnergyKWh,0);
+  #ifdef testmode
+    Serial.print("Wh: ");
+    Serial.print(res,3);
+    Serial.print(" = ");
+    Serial.println(EnergyKWh,3);
+  #endif //testmode
+  if(res==80){
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh);
+  }
+
+  float P1,P2,P3;
+  res = ElMeter_GetInstantPower(&P1,&P2,&P3);
+  #ifdef testmode
+    Serial.print("Power: ");
+    Serial.print(res);
+    Serial.print("; 1= ");
+    Serial.print(ph1,3);
+    Serial.print(" 2= ");
+    Serial.print(ph2,3);
+    Serial.print(" 3= ");
+    Serial.println(ph3,3);
+  #endif //testmode
+  if(res==80){
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, P1);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, P2);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, P3);
+  }
+  
+  float V1,V2,V3;
+  res = ElMeter_GetInstantVoltage(&V1,&V2,&V3);
+  #ifdef testmode
+    Serial.print("Voltage: ");
+    Serial.print(res);
+    Serial.print("; 1= ");
+    Serial.print(ph1);
+    Serial.print(" 2= ");
+    Serial.print(ph2);
+    Serial.print(" 3= ");
+    Serial.println(ph3);
+  #endif //testmode
+  if(res==80){
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V1, V1);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V2, V2);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V3, V3);
+  }
+  
+  //if(millis()-millisLastReport > 10000L){
+  //  millisLastReport = millis();
+    //fround( , 1)
+  //}
+}
+
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+  // #ifdef testmode
+  // Serial.print("received CAN message: VPIN=");
+  // Serial.print(vPinNumber);
+  // Serial.print(" FloatValue=");
+  // Serial.print(vPinValueFloat);
+  // Serial.println();
+  // #endif
+  switch(vPinNumber){
+    case VPIN_HEATER_TRGSTATUS:{
+    } break;
+    case VPIN_ClearTEHOverheatError:{
+      //errorTEHOverheatError = 0;
+    } break;
+    default:{
+      #ifdef testmode
+      Serial.print("! Warning: received unneeded CAN message: VPIN=");
+      Serial.print(vPinNumber);
+      Serial.print(" FloatValue=");
+      Serial.print(vPinValueFloat);
+      Serial.println();
+      #endif
+      return 0;
+    }
+  }
+  return 1;
+}
+
+///////////////////////////////////////////////////
+void setup(){ 
+  #ifdef testmode
+    Serial.begin(115200);
+  #endif //testmode
+  
+  #ifndef HardSerial
+    //softserial
     CANSerial.begin(9600);
     if (!CANSerial) { // If the object did not initialize, then its configuration is invalid
       Serial.println("!!Can't connect to ElMeter! Probably invalid SoftwareSerial pin configuration!!"); 
@@ -441,114 +533,150 @@ void setup(){
         on^=1;
       }
     } 
-  #endif
+  #endif //softserial
   
-  Serial.println("***setup OK***");
-  
+  #ifdef testmode
+    Serial.println("***setup OK***");
+  #endif //testmode
+
   //timer.setInterval(1000L, Mercury_Fast_Data); // интервал для частых  опросов (1000L = 1 секунда)
   //pinMode(SerialControl, OUTPUT);
-  /*pinMode(0, INPUT);
-  pinMode(1, INPUT);*/
-
+  
   //byte res = ElMeter_SetTimeCorr(20,05,00);
   //Serial.print("SetTime: ");
   //Serial.println(res);
 
+  /////////////////////////////////////////////////////////////////////////////////////
+  // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
+  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK){ //MCP_ANY, MCP_STD, MCP_STDEXT
+    ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
+  }else{  
+    #ifdef testmode
+    Serial.println("Error Initializing CAN bus driver MCP2515...");
+    #endif
+  }
+
+  //initialize filters Masks(0-1),Filters(0-5):
+  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;      //0x0F  0x010F0000;
+  // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;  //0x04  0x01040000;
+  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;  //0x04  0x01040000;
+  //receive 0x100 messages:
+  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
+  CAN0.init_Filt(1,0,0x01000000);
+
+  CAN0.init_Mask(1,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(2,0,0x01000000);
+  CAN0.init_Filt(3,0,0x01000000);
+  CAN0.init_Filt(4,0,0x01000000);
+  CAN0.init_Filt(5,0,0x01000000);
+  
+  CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
+  pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
+
+  timer.setInterval(10000L, Send2ServerElMeterData); 
+
 }
 
-void loop(){ 
-  Serial.println();
+void loop(){
+  //loop CANbus+Blynk
+  timer.run();
+  checkReadCAN();
+  //////////////////////////////
 
-  byte res = ElMeter_TestConnection();
-  Serial.print("Test connection: ");
-  Serial.println(res);
-  
-  res = ElMeter_OpenUser(1);
-  Serial.print("Login user1: ");
-  Serial.println(res);
+  #ifdef testmode
+    Serial.println();
 
-  byte YY,MM,DD,hh,mm,ss,sumerWinter;
-  res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss,&sumerWinter);
-  Serial.print("Get time: ");
-  Serial.print(res);
-  Serial.print(" ");
-  Serial.print(YY);
-  Serial.print("-");
-  Serial.print(MM);
-  Serial.print("-");
-  Serial.print(DD);
-  Serial.print(" ");
-  Serial.print(hh);
-  Serial.print(":");
-  Serial.print(mm);
-  Serial.print(":");
-  Serial.print(ss);
-  Serial.println();
-  
-  float Wh;
-  res = ElMeter_GetEnergyA(&Wh,0);
-  Serial.print("Wh: ");
-  Serial.print(res,3);
-  Serial.print(" = ");
-  Serial.println(Wh,3);
-  res = ElMeter_GetEnergyA(&Wh,1);
-  Serial.print("Wh1: ");
-  Serial.print(res);
-  Serial.print(" = ");
-  Serial.println(Wh,3);
-  res = ElMeter_GetEnergyA(&Wh,2);
-  Serial.print("Wh2: ");
-  Serial.print(res);
-  Serial.print(" = ");
-  Serial.println(Wh,3);
-  
-  float ph1,ph2,ph3;
-  res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
-  Serial.print("Power: ");
-  Serial.print(res);
-  Serial.print("; 1= ");
-  Serial.print(ph1,3);
-  Serial.print(" 2= ");
-  Serial.print(ph2,3);
-  Serial.print(" 3= ");
-  Serial.println(ph3,3);
-  
-  res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
-  Serial.print("Voltage: ");
-  Serial.print(res);
-  Serial.print("; 1= ");
-  Serial.print(ph1);
-  Serial.print(" 2= ");
-  Serial.print(ph2);
-  Serial.print(" 3= ");
-  Serial.println(ph3);
+    byte res = ElMeter_TestConnection();
+    Serial.print("Test connection: ");
+    Serial.println(res);
+    
+    res = ElMeter_OpenUser(1);
+    Serial.print("Login user1: ");
+    Serial.println(res);
 
-  /*
-  ElMeter_ExecQuery(test_cmd, sizeof(test_cmd), 4);
-  ElMeter_ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
-  ElMeter_ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
-  //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
-  //Результат: 16:14:43 среда 27 февраля 2008 года, зима
-  ElMeter_ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
-  ElMeter_ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
-  ElMeter_ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
-  */
-  /*
-  Send HEX:  e8 0 4f b0
-  Received:  e8 0 4f b0  - 11 : 4 < 4
-  Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85
-  Received:  e8 0 4f b0  - 12 : 4 < 4
-  Send HEX:  e8 4 0 f3 34
-  Received:  e8 36 5 16 3 16 2 22 1 48 d4  - 21 : 11 < 11
-  Send HEX:  e8 5 0 0 25 85
-  Received:  e8 68 1 59 10 ff ff ff ff 3 0 63 4d ff ff ff ff 47 7a  - 36 : 19 < 19
-  Send HEX:  e8 8 16 0 ba 26
-  Received:  e8 80 22 0 0 0 0 80 22 0 0 0 0 27 3  - 24 : 15 < 15
-  Send HEX:  e8 8 16 11 7a 2a 
-  Received:  e8 0 0 0 0 75 58 0 0 0 6b 10  - 19 : 12 < 12
-  */
-  
-  delay(8000);
+    byte YY,MM,DD,hh,mm,ss,sumerWinter;
+    res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss,&sumerWinter);
+    Serial.print("Get time: ");
+    Serial.print(res);
+    Serial.print(" ");
+    Serial.print(YY);
+    Serial.print("-");
+    Serial.print(MM);
+    Serial.print("-");
+    Serial.print(DD);
+    Serial.print(" ");
+    Serial.print(hh);
+    Serial.print(":");
+    Serial.print(mm);
+    Serial.print(":");
+    Serial.print(ss);
+    Serial.println();
+    
+    float Wh;
+    res = ElMeter_GetEnergyA(&Wh,0);
+    Serial.print("Wh: ");
+    Serial.print(res,3);
+    Serial.print(" = ");
+    Serial.println(Wh,3);
+    res = ElMeter_GetEnergyA(&Wh,1);
+    Serial.print("Wh1: ");
+    Serial.print(res);
+    Serial.print(" = ");
+    Serial.println(Wh,3);
+    res = ElMeter_GetEnergyA(&Wh,2);
+    Serial.print("Wh2: ");
+    Serial.print(res);
+    Serial.print(" = ");
+    Serial.println(Wh,3);
+    
+    float ph1,ph2,ph3;
+    res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
+    Serial.print("Power: ");
+    Serial.print(res);
+    Serial.print("; 1= ");
+    Serial.print(ph1,3);
+    Serial.print(" 2= ");
+    Serial.print(ph2,3);
+    Serial.print(" 3= ");
+    Serial.println(ph3,3);
+    
+    res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
+    Serial.print("Voltage: ");
+    Serial.print(res);
+    Serial.print("; 1= ");
+    Serial.print(ph1);
+    Serial.print(" 2= ");
+    Serial.print(ph2);
+    Serial.print(" 3= ");
+    Serial.println(ph3);
 
-  //timer.run();
+    /*
+    ElMeter__ExecQuery(test_cmd, sizeof(test_cmd), 4);
+    ElMeter__ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
+    ElMeter__ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11); //(adr) 03 28 21,01,31,01 22,01 (CRC): 21:28:03,Monday,31,jan,2022y,winter(=1)
+    //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
+    //Результат: 16:14:43 среда 27 февраля 2008 года, зима
+    ElMeter__ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); //4x4 bytes (A+,A-,R+,R-)
+    ElMeter__ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); //4x3 bytes (sum,ph1,ph2,ph3)
+    ElMeter__ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); //3x3 (ph1,ph2,ph3)
+    */
+    /*
+    Send HEX:  e8 0 4f b0
+    Received:  e8 0 4f b0  - 11 : 4 < 4
+    Send HEX:  e8 1 1 1 1 1 1 1 1 d9 85
+    Received:  e8 0 4f b0  - 12 : 4 < 4
+    Send HEX:  e8 4 0 f3 34
+    Received:  e8 36 5 16 3 16 2 22 1 48 d4  - 21 : 11 < 11
+    Send HEX:  e8 5 0 0 25 85
+    Received:  e8 68 1 59 10 ff ff ff ff 3 0 63 4d ff ff ff ff 47 7a  - 36 : 19 < 19
+    Send HEX:  e8 8 16 0 ba 26
+    Received:  e8 80 22 0 0 0 0 80 22 0 0 0 0 27 3  - 24 : 15 < 15
+    Send HEX:  e8 8 16 11 7a 2a 
+    Received:  e8 0 0 0 0 75 58 0 0 0 6b 10  - 19 : 12 < 12
+    */
+
+    delay(8000);
+  
+  #endif //testmode
 }

@@ -495,6 +495,7 @@ void InsureSafeValues(){
   if(TEHTargetTemp<TEHTargetTemp_MIN) TEHTargetTemp=TEHTargetTemp_MIN;
   if(TEHTargetTemp>TEHTargetTemp_MAX) TEHTargetTemp=TEHTargetTemp_MAX;
 }
+
 //////////////////////COMMANDer////////////////////// STATUS changes:
 void CommandCycle_Event(){
   InsureSafeValues();
@@ -632,7 +633,7 @@ void CommandCycle_Event(){
 }
 
 //////////////////////CAN commands///////////////////
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   // #ifdef testmode
   // Serial.print("received CAN message: VPIN=");
   // Serial.print(vPinNumber);
