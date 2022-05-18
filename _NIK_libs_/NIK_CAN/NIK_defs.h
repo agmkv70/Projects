@@ -114,11 +114,12 @@ int boardSTATUS = Status_Auto1;
 
 //////ElMeter
 #define VPIN_ElMeter_EnergyKWh     110
-#define VPIN_ElMeter_P1     111
-#define VPIN_ElMeter_P2     112
-#define VPIN_ElMeter_P3     113
-#define VPIN_ElMeter_V1     114
-#define VPIN_ElMeter_V2     115
-#define VPIN_ElMeter_V3     116
+#define VPIN_ElMeter_EnergyKWhDelta     111
+#define VPIN_ElMeter_P1     112
+#define VPIN_ElMeter_P2     113
+#define VPIN_ElMeter_P3     114
+#define VPIN_ElMeter_V1     115
+#define VPIN_ElMeter_V2     116
+#define VPIN_ElMeter_V3     117
 
 

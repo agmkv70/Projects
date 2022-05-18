@@ -42,6 +42,7 @@ byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
 //byte curent_U2_cmd[] = {8,0x14,0x12};
 //byte curent_U3_cmd[] = {8,0x14,0x13};
 
+float _pred_EnergyKWh=0; //to return delta
 #define MAXRESPONSE 32
 byte response[MAXRESPONSE]; // длина массива входящего сообщения
 int byteReceived;
@@ -443,8 +444,11 @@ void Send2ServerElMeterData(){
   #endif //testmode
   if(res==80){
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh);
+    if(_pred_EnergyKWh!=0){
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh-_pred_EnergyKWh);
+    }
   }
-
+  
   float P1,P2,P3;
   res = ElMeter_GetInstantPower(&P1,&P2,&P3);
   #ifdef testmode
