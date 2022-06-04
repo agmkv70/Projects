@@ -46,7 +46,7 @@
 #define _QUEUELISTFIXEDARRAY_H
 
 #ifndef _MAX_FIXEDARRAY_DEFINED
-#define _MAX_FIXEDARRAY_DEFINED 15
+#define _MAX_FIXEDARRAY_DEFINED 10
 #endif
 
 // include Arduino basic header.
