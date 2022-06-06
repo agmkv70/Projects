@@ -50,6 +50,7 @@ volatile byte response[MAXRESPONSE+4]; // длина массива входящ
 volatile byte address_cmd_crc[MAXRESPONSE+4];
 volatile int byteReceived;
 volatile int byteSend;
+//unsigned long time_sent_kWh=0, time_sent_kWhDelta=0;
 
 unsigned int crc16MODBUS(const byte *nData, int count);
 void Send2ServerElMeterData();
@@ -612,26 +613,26 @@ byte ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile fl
   if(res>0){
     if(response[0]==address[0]){
       
-      //byte b1;// = response[4];
+      byte b1 = response[4];
       byte b2 = response[5];
       byte b3 = response[6];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      unsigned long P = (unsigned long)b3<<8 | (unsigned long)b2;
-      *Ph1 = (float)P/1000;
+      unsigned long P = (unsigned long)(b1&0x3F)<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph1 = (float)P/100;
       
-      //b1 = response[7];
+      b1 = response[7];
       b2 = response[8];
       b3 = response[9];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      P = (unsigned long)b3<<8 | (unsigned long)b2;
-      *Ph2 = (float)P/1000;
+      P = (unsigned long)(b1&0x3F)<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph2 = (float)P/100;
       
-      //b1 = response[10];
+      b1 = response[10];
       b2 = response[11];
       b3 = response[12];
       //b1_b3_b2 (b1 = 1bit_ActSign,2bit_ReaSign,345678)
-      P = (unsigned long)b3<<8 | (unsigned long)b2;
-      *Ph3 = (float)P/1000;
+      P = (unsigned long)(b1&0x3F)<<16 | (unsigned long)b3<<8 | (unsigned long)b2;
+      *Ph3 = (float)P/100;
       
       return 1; //OK
     }else{
