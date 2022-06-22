@@ -44,7 +44,7 @@ volatile byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
 //byte curent_U2_cmd[] = {8,0x14,0x12};
 //byte curent_U3_cmd[] = {8,0x14,0x13};
 
-volatile float _pred_EnergyKWh=0; //to return delta
+volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=46400.16; //to return delta//to know main meter value (initval=22/06/2022)
 #define MAXRESPONSE 21
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
@@ -750,9 +750,10 @@ void Send2ServerElMeterData(){
       Serial.print(" = ");
       Serial.println(EnergyKWh,3);
     #endif //testmodeS
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh + _corr_EnergyKWh);
     if(_pred_EnergyKWh!=0){
-      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh-_pred_EnergyKWh);
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh - _pred_EnergyKWh);
+      _pred_EnergyKWh = EnergyKWh;
     }
   }else{
     Serial.println();
