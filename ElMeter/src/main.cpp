@@ -40,7 +40,7 @@ volatile byte curent_PSum_cmd[] = {8,0x16,0x00}; //phase sum=0x00, 0x01-1phase,.
 byte curent_I2_cmd[] = {8,0x14,0x22};
 byte curent_I3_cmd[] = {8,0x14,0x23};*/
 volatile byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
-//byte curent_U1_cmd[] = {8,0x14,0x11}; //U 1 phase
+//byte curent_U1_cmd[] = {8,0x14,0x11}; // U 1 phase
 //byte curent_U2_cmd[] = {8,0x14,0x12};
 //byte curent_U3_cmd[] = {8,0x14,0x13};
 
