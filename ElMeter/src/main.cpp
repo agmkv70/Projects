@@ -45,6 +45,7 @@ volatile byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
 //byte curent_U3_cmd[] = {8,0x14,0x13};
 
 volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=46400.16; //to return delta//to know main meter value (initval=22/06/2022)
+volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
 #define MAXRESPONSE 21
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
@@ -690,10 +691,16 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
   // Serial.println();
   // #endif
   switch(vPinNumber){
-    case VPIN_HEATER_TRGSTATUS:{
+    //case VPIN_HEATER_TRGSTATUS:{
+    //} break;
+    case VPIN_ElMeter_EnergyKWh_cor:{
+      _corr_EnergyKWh = vPinValueFloat;
     } break;
-    case VPIN_ClearTEHOverheatError:{
-      //errorTEHOverheatError = 0;
+    case VPIN_ElMeter_EnergyKWh1_cor:{
+      _corr_EnergyKWh1 = vPinValueFloat;
+    } break;
+    case VPIN_ElMeter_EnergyKWh2_cor:{
+      _corr_EnergyKWh2 = vPinValueFloat;
     } break;
     default:{
       #ifdef testmodeS
@@ -713,7 +720,7 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 #define testmodeS2
 void Send2ServerElMeterData(){
   volatile byte res = 0;
-  volatile float EnergyKWh;
+  volatile float EnergyKWh,EnergyKWh1,EnergyKWh2;
   volatile float P1,P2,P3;
   volatile float V1,V2,V3;
   
@@ -755,6 +762,37 @@ void Send2ServerElMeterData(){
       addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh - _pred_EnergyKWh);
       _pred_EnergyKWh = EnergyKWh;
     }
+  }else{
+    Serial.println();
+    return;
+  }
+
+  res = ElMeter_GetEnergyA(&EnergyKWh1,1);
+  #ifdef testmodeS2
+    Serial.print("Wh1: ");
+    Serial.print(res,3);
+  #endif //testmodeS
+  if(res==1){
+    #ifdef testmodeS2
+      Serial.print(" = ");
+      Serial.println(EnergyKWh1,3);
+    #endif //testmodeS
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh1, EnergyKWh1 + _corr_EnergyKWh1);
+  }else{
+    Serial.println();
+    return;
+  }
+  res = ElMeter_GetEnergyA(&EnergyKWh2,2);
+  #ifdef testmodeS2
+    Serial.print("Wh2: ");
+    Serial.print(res,3);
+  #endif //testmodeS
+  if(res==1){
+    #ifdef testmodeS2
+      Serial.print(" = ");
+      Serial.println(EnergyKWh2,3);
+    #endif //testmodeS
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh2, EnergyKWh2 + _corr_EnergyKWh2);
   }else{
     Serial.println();
     return;
