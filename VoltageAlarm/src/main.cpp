@@ -20,8 +20,20 @@ SimpleTimer timer2;
 
 int LEDState=0;
 long timeLED;
-long LEDFlashOn=10;
-long LEDFlashOff=5000;
+long LEDFlashOn=10,   LEDOnWait=10,   LEDOnBHigh=100, LEDOnBLow=200;
+long LEDFlashOff=5000,LEDOffWait=5000,LEDOffBHigh=40, LEDOffBLow=1000;
+void LEDFlashMode(byte mode){
+  if(mode==0){ //wait
+    LEDFlashOn=LEDOnWait;
+    LEDFlashOff=LEDOffWait;
+  }else if(mode==1){ //high
+    LEDFlashOn=LEDOnBHigh;
+    LEDFlashOff=LEDOffBHigh;
+  }else if(mode==2){ //low
+    LEDFlashOn=LEDOnBLow;
+    LEDFlashOff=LEDOffBLow;
+  }
+}
 long buttonDownDebounce=0;
 int buttonPressed=0;
 
@@ -33,21 +45,22 @@ float VArSumTotal = 0;
 long startTime;                
 
 #define BatteryConnectedV 7
-#define DischargeAlarmV 12.4
-#define DischargeAlarmReset 12.7
+#define DischargeAlarmV 12.4 //12.4
+#define DischargeAlarmReset 12.7 //12.7
 
-#define OverchargeAlarmV 14.4
-#define OverchargeAlarmReset 14.2
+#define OverchargeAlarmV 14.4  //14.4
+#define OverchargeAlarmReset 14.2  //14.2
 
 #define VChangeToBalance 0.1 //as small as i can reliably detect
 #define BalanceTime 7200000 //2hours (2*3600sec*1000millis)
 float lastBalancedV=0;
 long startBalanceTime=0;
 
-enum StatesMelodyPlay {st_off,st_melodyPlay,st_forceStopped};
+enum StatesMelodyPlay {st_off,st_melodyPlay,st_forceStopped}; //forceStopped=Silenced (LED continues flashing)
 StatesMelodyPlay state_discharged=st_off; 
 StatesMelodyPlay state_charged=st_off; 
 
+void repeatMelody();
 void timer_call_playmelody() { //////////////////
   /*if(melodyPlay){
     if(currNote==3){//COUNT_NOTES){
@@ -69,7 +82,7 @@ void timer_call_playmelody() { //////////////////
       digitalWrite(PIN_Buzzer,HIGH);
       
       if(melodyPauseBeforeRepeat>0){ //its almost playing, so we do not turn off melodyPlay :)
-        mel_timer.setTimeout(melodyPauseBeforeRepeat,melodyPauseBeforeRepeat);
+        mel_timer.setTimeout(melodyPauseBeforeRepeat,repeatMelody);
       }else{
         melodyPlay=0;
       }
@@ -108,9 +121,12 @@ void startMelody(byte mel_type,long aMelodyPauseBeforeRepeat=0){
   if(mel_type==1){ //oda to joy
     melody = melody_oda2joy;
     num_notes=sizeof(melody_oda2joy)/sizeof(melody_oda2joy[0])/2; 
+    LEDFlashMode(1);
+
   }else if(mel_type==2){ //bach toccata d minor
     melody = melody_bachtocc;
     num_notes=sizeof(melody_bachtocc)/sizeof(melody_bachtocc[0])/2; 
+    LEDFlashMode(2);
   }
 
   noTone(PIN_Buzzer);
@@ -123,7 +139,6 @@ void startMelody(byte mel_type,long aMelodyPauseBeforeRepeat=0){
 
 void repeatMelody(){
   currNote=0;
-  
   timer_call_playmelody();
 }
 
@@ -154,6 +169,19 @@ void onButtonPressed() { ////////////////////////
     noTone(PIN_Buzzer);
     digitalWrite(PIN_Buzzer,HIGH);
   }
+  if(state_charged==st_melodyPlay){
+    state_charged = st_forceStopped;
+    stopMelody();
+
+    tone(PIN_Buzzer, 4000, 20);
+    delay(20);
+    noTone(PIN_Buzzer);
+    //delay(20);
+    tone(PIN_Buzzer, 2000, 20);
+    delay(20);
+    noTone(PIN_Buzzer);
+    digitalWrite(PIN_Buzzer,HIGH);
+  }
 }
 
 void OnVoltageMeasured(){ ///////////////////////
@@ -166,9 +194,12 @@ void OnVoltageMeasured(){ ///////////////////////
   }
   if(voltage >= DischargeAlarmReset && state_discharged != st_off){
     state_discharged=st_off;
+    stopMelody();
+    LEDFlashMode(0);
   }
   if(state_discharged == st_melodyPlay && melodyPlay==0){
     startMelody(2,20000); //dMinor
+    LEDFlashMode(2);
   }
 
   //charged:
@@ -179,9 +210,12 @@ void OnVoltageMeasured(){ ///////////////////////
   }
   if(voltage <= OverchargeAlarmReset && state_charged != st_off){
     state_charged=st_off;
+    stopMelody();
+    LEDFlashMode(0);
   }
   if(state_charged == st_melodyPlay && melodyPlay==0){
     startMelody(1,20000); //joy
+    LEDFlashMode(1);
   }
 
   //balancing:
@@ -265,6 +299,7 @@ void setup() { ////////////////////////////////////////////////
   delay(4);
   digitalWrite(PIN_RELAY1off,LOW);
 
+  LEDFlashMode(0);
 }
 
 void loop() { /////////////////////////////////////////////////
@@ -303,7 +338,6 @@ void loop() { /////////////////////////////////////////////////
     buttonPressed=0;
     buttonDownDebounce=0;
   }
-
   
 } //loop
 
