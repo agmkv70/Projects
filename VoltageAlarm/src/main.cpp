@@ -182,6 +182,7 @@ void onButtonPressed() { ////////////////////////
     noTone(PIN_Buzzer);
     digitalWrite(PIN_Buzzer,HIGH);
   }
+
 }
 
 void OnVoltageMeasured(){ ///////////////////////
@@ -282,6 +283,7 @@ void setup() { ////////////////////////////////////////////////
   digitalWrite(PIN_LEDOnShield2,LOW);
   
   pinMode(PIN_BUTTON, INPUT_PULLUP);
+  //pinMode(PIN_LEDButton, INPUT);
   
   for(int i=0;i<VArNumReadings;i++){
     VArReadings[i]=0;
