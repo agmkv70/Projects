@@ -8,8 +8,9 @@
 #include <NIK_can.h>
 
 //#define HardSerial
+#define testmodeS2 //was
 //#define testmodeS
-#define testmode
+#define testmode //was
 //#define testmodeCAN
 
 //-------- CAN to meter
@@ -44,6 +45,8 @@ volatile byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
 //byte curent_U2_cmd[] = {8,0x14,0x12};
 //byte curent_U3_cmd[] = {8,0x14,0x13};
 
+//#define KWhDeltaIntervalmillis 3600000L;
+volatile unsigned long pred_EnergyKWhmillis=0;
 volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=46400.16; //to return delta//to know main meter value (initval=22/06/2022)
 volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
 #define MAXRESPONSE 21
@@ -146,7 +149,7 @@ void setup(){
         on^=1;
         i++;
       }*/
-
+  
 }
 
 void loop(){
@@ -320,9 +323,9 @@ unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет ко�
 }
 
 byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
-  int s_address = sizeof(address);
-  int s_address_cmd = s_address + s_cmd;
-  int s_address_cmd_crc = s_address_cmd + 2;
+  int s_addr = 1;
+  int s_address_cmd = s_cmd + s_addr; //plus address byte
+  int s_address_cmd_crc = s_address_cmd + 2; //plus CRC
 
   #ifdef testmodeS
     Serial.print("ExecQ: ");
@@ -330,7 +333,7 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
   #endif
   //write adress:
   int pos = 0;
-  for (int i = 0; i < s_address; i++){
+  for (int i = 0; i < s_addr; i++){
     address_cmd_crc[pos++] = address[i];
   }
   //add command:
@@ -717,7 +720,6 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 }
 
 ////////////////////////////////////////////
-#define testmodeS2
 void Send2ServerElMeterData(){
   volatile byte res = 0;
   volatile float EnergyKWh,EnergyKWh1,EnergyKWh2;
@@ -758,8 +760,11 @@ void Send2ServerElMeterData(){
       Serial.println(EnergyKWh,3);
     #endif //testmodeS
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh + _corr_EnergyKWh);
-    if(_pred_EnergyKWh!=0){
-      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh - _pred_EnergyKWh);
+    if((millis()-pred_EnergyKWhmillis)>=3600000L || pred_EnergyKWhmillis==0){
+      pred_EnergyKWhmillis = millis();
+      if(_pred_EnergyKWh!=0){
+        addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh - _pred_EnergyKWh);
+      }
       _pred_EnergyKWh = EnergyKWh;
     }
   }else{
@@ -767,6 +772,7 @@ void Send2ServerElMeterData(){
     return;
   }
 
+  /*
   res = ElMeter_GetEnergyA(&EnergyKWh1,1);
   #ifdef testmodeS2
     Serial.print("Wh1: ");
@@ -796,7 +802,7 @@ void Send2ServerElMeterData(){
   }else{
     Serial.println();
     return;
-  }
+  } */
   
   res = ElMeter_GetInstantPower(&P1,&P2,&P3);
   #ifdef testmodeS2
