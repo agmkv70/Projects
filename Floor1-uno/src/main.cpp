@@ -25,16 +25,16 @@ int BoilerPowerCurrentStateOnOff=0; //0=on or 1=off
 int BoilerPowerPeriodMinutes=8; //period of PWM
 long BoilerPeriodMillis=60000L; //period of PWM in millis
 long BoilerPWMCycleStart=0; //last cycle start
-float BoilerTargetTemp=23;
+float BoilerTargetTemp=22;
 float BoilerPID_KCoef=0.1, //for convenience multiply all BoilerPID_K
-	BoilerPID_Kp=6, BoilerPID_Ki=0.2, BoilerPID_Kd=9;
+	BoilerPID_Kp=4, BoilerPID_Ki=0.1, BoilerPID_Kd=2;
 float BoilerPID_Isum=0, BoilerPID_prevDelta=0;
 
 float HomeTargetTemp=21;
 float BoilerTargetTemp_MIN=21;
 float BoilerTargetTemp_MAX=29;
 float HomePID_KCoef=0.01, //for convenience multiply all HomePID_K
-	HomePID_Kp=6, HomePID_Ki=1, HomePID_Kd=9;
+	HomePID_Kp=0.4, HomePID_Ki=0.1, HomePID_Kd=2;
 float HomePID_Isum=0, HomePID_prevDelta=0;
 
 //initdiff: 22.06 21.44 22.12
@@ -352,7 +352,7 @@ void MainCycle_ReadTempAndMoveValveEvent() {
 	//addCANMessage2Queue(VPIN_BoilerPower,fround(BoilerPower,2); //rounded 0.00 value
 }
 
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
 			boardSTATUS = (int)vPinValueFloat;
