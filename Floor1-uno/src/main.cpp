@@ -18,14 +18,14 @@
 #define BOILER_ON_PIN 6 //D6 on nano //uno was 14 //(analog 0 same as digital 14)
 
 int VALVESTATUS=0, //vpin37 //0 1    manual / auto floorIn
-		PIDSTATUS=0;	 //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+		PIDSTATUS=0;	 //vpin36 //0 1 2 3 manual BoilerPower / auto BoilerTemp / auto HomeTemp / 3 Boiler night
 
 float BoilerPower=0; //Boiler power on time factor 0.0 .. 10.0 float
 int BoilerPowerCurrentStateOnOff=0; //0=on or 1=off
 int BoilerPowerPeriodMinutes=8; //period of PWM
 long BoilerPeriodMillis=60000L; //period of PWM in millis
 long BoilerPWMCycleStart=0; //last cycle start
-float BoilerTargetTemp=22;
+float BoilerTargetTemp=22,BoilerTargetTempDAY=22,BoilerTargetTempNIGHT=22;
 float BoilerPID_KCoef=0.1, //for convenience multiply all BoilerPID_K
 	BoilerPID_Kp=4, BoilerPID_Ki=0.1, BoilerPID_Kd=2;
 float BoilerPID_Isum=0, BoilerPID_prevDelta=0;
@@ -36,6 +36,7 @@ float BoilerTargetTemp_MAX=29;
 float HomePID_KCoef=0.01, //for convenience multiply all HomePID_K
 	HomePID_Kp=0.4, HomePID_Ki=0.1, HomePID_Kd=2;
 float HomePID_Isum=0, HomePID_prevDelta=0;
+float ElMeterPower1=0, ElMeterPower1_LIMIT=4100; //turn of boiler if power exeeds limit
 
 //initdiff: 22.06 21.44 22.12
 OneWire  TempDS_Boiler(2);  // on pin 2 (a 4.7K resistor to 5V is necessary)
@@ -49,7 +50,7 @@ int MainCycleInterval=10; //изредка 60
 #ifndef testmode
 int MainCycleInterval=60; //изредка 60
 #endif
-int eepromVIAddr=1000,eepromValueIs=7750+2; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7750+3; //if this is in eeprom, then we got valid values, not junk
 // 21.12 20.94 21.19
 // 21.06 20.87 21.12
 float tempBoiler=20, offsetBoiler=0;
@@ -86,7 +87,7 @@ void HomePIDEvaluation(){
 	float D = (HomePID_Kd * HomePID_KCoef) * (delta - HomePID_prevDelta);
 	HomePID_prevDelta = delta;
 
-  BoilerTargetTemp = BoilerTargetTemp + P + I + D;
+  	BoilerTargetTemp = BoilerTargetTemp + P + I + D; ///////
 	
 	if(BoilerTargetTemp < BoilerTargetTemp_MIN){
 		BoilerTargetTemp = BoilerTargetTemp_MIN;
@@ -98,9 +99,11 @@ void HomePIDEvaluation(){
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomePID_I, fround(I,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomePID_D, fround(D,2));
 	addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HomeTargetTempGraph, fround(HomeTargetTemp,1));
+	//addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerTargetTemp, fround(BoilerTargetTemp,1));
 }
 
 void BoilerPIDEvaluation(){
+	BoilerTargetTemp = (PIDSTATUS==3) ? BoilerTargetTempNIGHT : BoilerTargetTempDAY;
 	float delta = BoilerTargetTemp - tempBoiler;
 	
 	//sum Integral part of PID only if our result is not saturated:
@@ -116,7 +119,7 @@ void BoilerPIDEvaluation(){
 	float D = (BoilerPID_Kd * BoilerPID_KCoef) * (delta - BoilerPID_prevDelta);
 	BoilerPID_prevDelta = delta;
 
-  BoilerPower = BoilerPower + P + I + D;
+  BoilerPower = BoilerPower + P + I + D; ///////////
 	
 	if(BoilerPower<0){
 		BoilerPower=0;
@@ -136,7 +139,7 @@ void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 		
 	if( millisFromStart >= BoilerPeriodMillis ){ //time to START:
 		if( !ErrorTempBoiler && PIDSTATUS>0 ){
-			if( !ErrorTempHome && PIDSTATUS>1 ){  //vpin36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+			if( !ErrorTempHome && PIDSTATUS==2 ){  //vpin36 //0 1 2 3  manual BoilerPower / 1auto BoilerTempDAY / 2auto HomeTemp / 3autoBoilerTempNIGHT
 				HomePIDEvaluation(); //evaluate BoilerTargetTemp
 			}
 			BoilerPIDEvaluation(); //once: on boiler pwm cycle start and only if temperature is really read
@@ -160,6 +163,16 @@ void BoilerPWMTimerEvent(){ //PWM = ON at the beginning, OFF at the end of cycle
 				if(millisOn < BoilerPeriodMillis)	BoilerPowerCurrentStateOnOff=0;
 				addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BoilerPowerOnOff, BoilerPowerCurrentStateOnOff);
 			}
+	}
+	
+	if(ElMeterPower1>ElMeterPower1_LIMIT){ //restrict power consumption (if something else is turned on)
+		if(BoilerPowerCurrentStateOnOff==1){
+			addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ErrCode, ErrCode_PwrLIMIT);
+		}
+		BoilerPowerCurrentStateOnOff = 0;
+		if(ElMeterPower1>10){ //let it fade if connection is lost - it won't block boiler forever
+			ElMeterPower1 = ElMeterPower1 - 10;
+		}
 	}
 
   if(BoilerPowerCurrentStateOnOff==1)
@@ -399,7 +412,8 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 		case VPIN_BoilerPID_Ki: BoilerPID_Ki = vPinValueFloat; EEPROM_storeValues(); break;
 		case VPIN_BoilerPID_Kd: BoilerPID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
 		case VPIN_BoilerPower:  BoilerPower  = vPinValueFloat; EEPROM_storeValues(); break;
-		case VPIN_BoilerTargetTemp: BoilerTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_BoilerTargetTempDAY: BoilerTargetTempDAY = vPinValueFloat; EEPROM_storeValues(); break;
+		case VPIN_BoilerTargetTempNIGHT: BoilerTargetTempNIGHT = vPinValueFloat; EEPROM_storeValues(); break;
 		case VPIN_SetBoilerPID_Isum_Zero: BoilerPID_Isum=0; break;
 
 		case VPIN_HomePID_Kp: HomePID_Kp = vPinValueFloat; EEPROM_storeValues(); break;
@@ -407,6 +421,12 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 		case VPIN_HomePID_Kd: HomePID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
 		case VPIN_HomeTargetTemp: HomeTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
 		case VPIN_SetHomePID_Isum_Zero: HomePID_Isum=0; break;
+
+		case VPIN_ElMeter_P1: 
+			ElMeterPower1 = vPinValueFloat;
+			addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Floor_ECHO, vPinValueFloat);
+			break;
+
 		default:
 			#ifdef testmode
 			Serial.print("! Warning: received unneeded CAN message: VPIN=");
@@ -432,9 +452,10 @@ void EEPROM_storeValues(){
   EEPROM.put(VPIN_BoilerPID_Kp*sizeof(float), 		BoilerPID_Kp);
   EEPROM.put(VPIN_BoilerPID_Ki*sizeof(float), 		BoilerPID_Ki);
   EEPROM.put(VPIN_BoilerPID_Kd*sizeof(float), 		BoilerPID_Kd);
-  EEPROM.put(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM.put(VPIN_BoilerTargetTemp*sizeof(float), BoilerTargetTemp);
-
+  //EEPROM.put(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
+  EEPROM.put(VPIN_BoilerTargetTempDAY*sizeof(float), BoilerTargetTempDAY);
+  EEPROM.put(VPIN_BoilerTargetTempNIGHT*sizeof(float), BoilerTargetTempNIGHT);
+  
 	EEPROM.put(VPIN_HomeTargetTemp*sizeof(float), HomeTargetTemp);
   EEPROM.put(VPIN_HomePID_Kp*sizeof(float), 		HomePID_Kp);
   EEPROM.put(VPIN_HomePID_Ki*sizeof(float), 		HomePID_Ki);
@@ -465,8 +486,9 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_BoilerPID_Kp*sizeof(float), 			BoilerPID_Kp);
   EEPROM.get(VPIN_BoilerPID_Ki*sizeof(float), 			BoilerPID_Ki);
 	EEPROM.get(VPIN_BoilerPID_Kd*sizeof(float), 			BoilerPID_Kd);
-  EEPROM.get(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
-  EEPROM.get(VPIN_BoilerTargetTemp*sizeof(float), 	BoilerTargetTemp);
+  //EEPROM.get(VPIN_BoilerPower*sizeof(float), 			BoilerPower);
+  EEPROM.get(VPIN_BoilerTargetTempDAY*sizeof(float), 	BoilerTargetTempDAY);
+  EEPROM.get(VPIN_BoilerTargetTempNIGHT*sizeof(float), 	BoilerTargetTempNIGHT);
 
 	EEPROM.get(VPIN_HomeTargetTemp*sizeof(float), 		HomeTargetTemp);
 	EEPROM.get(VPIN_HomePID_Kp*sizeof(float), 				HomePID_Kp);
@@ -474,7 +496,7 @@ void EEPROM_restoreValues(){
 	EEPROM.get(VPIN_HomePID_Kd*sizeof(float), 				HomePID_Kd);
 
 	EEPROM.get(VPIN_PIDSTATUS*sizeof(float), 				PIDSTATUS);
-	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 			VALVESTATUS);
+	EEPROM.get(VPIN_VALVESTATUS*sizeof(float), 				VALVESTATUS);
 }
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
@@ -500,29 +522,25 @@ void setup(void) {
   if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
-  {  
+  { 
 		#ifdef testmode
 		Serial.println("Error Initializing CAN bus driver MCP2515...");
 		#endif
 	}
 
   //initialize filters Masks(0-1),Filters(0-5):
-  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
+   unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;			//0x0F	0x010F0000;
   // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;	//0x04	0x01040000;
-  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
+   unsigned long filtINF = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;	//0x04	0x01040000;
   //receive 0x100 messages:
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
   CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-  // CAN0.init_Mask(0,0,mask);                // Init first mask...
-  // CAN0.init_Filt(0,0,filt0);                // Init first filter...
-  // #ifdef testmode
-  // CAN0.init_Filt(1,0,filt1);                // Init second filter...
-  // #endif
-  //CAN0.init_Mask(1,0,0x01FFFFFF);                // Init second mask...
-  //CAN0.init_Filt(2,0,0x01FFFFFF);                // Init third filter...
-  //CAN0.init_Filt(3,0,filt);                // Init fouth filter...
-  //CAN0.init_Filt(4,0,filt);                // Init fifth filter...
-  //CAN0.init_Filt(5,0,filt);                // Init sixth filter...
+  CAN0.init_Filt(1,0,0x01000000);                // Init first filter...
+	//CAN0.init_Mask(1,0,mask);                // Init first mask...
+	//CAN0.init_Filt(2,0,filtINF);                // Init second filter...
+	//CAN0.init_Filt(3,0,filtINF);                // Init second filter...
+	//CAN0.init_Filt(4,0,filtINF);                // Init second filter...
+	//CAN0.init_Filt(5,0,filtINF);                // Init second filter...
   
 	#ifdef testmode
 	CAN0.setMode(MCP_LOOPBACK);

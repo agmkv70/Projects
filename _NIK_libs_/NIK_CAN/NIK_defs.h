@@ -1,4 +1,7 @@
 //NIK_defs.h
+#define ErrCode_OK 0
+#define ErrCode_PwrLIMIT 10
+
 //defs of BLYNK VirtualPINs and states:
 
 #define Status_Standby	1
@@ -10,7 +13,7 @@
 int boardSTATUS = Status_Auto1;
 #define VPIN_STATUS			0
 #define VPIN_ErrCode		1
-#define VPIN_PIDSTATUS		36 //0 1 2  manual BoilerPower / auto BoilerTemp / auto HomeTemp
+#define VPIN_PIDSTATUS		36 //0 1 2 3 manual BoilerPower / 1 auto BoilerTemp DAY/ 2 auto HomeTemp / 3 auto BoilerTemp NIGHT
 #define VPIN_VALVESTATUS	37 //0 1    manual / auto floorIn
 
 #define VPIN_Boiler				2
@@ -37,7 +40,8 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_BoilerPID_P 20 //proportional
 #define VPIN_BoilerPID_I 21 //integral
 #define VPIN_BoilerPID_D 22 //differential
-#define VPIN_BoilerTargetTemp 23
+#define VPIN_BoilerTargetTempDAY 23
+#define VPIN_BoilerTargetTempNIGHT 38
 #define VPIN_SetBoilerPID_Isum_Zero 24
 #define VPIN_BoilerTargetTempGraph 25
 //26 is used
@@ -50,8 +54,9 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_HomeTargetTemp 33
 #define VPIN_SetHomePID_Isum_Zero 34
 #define VPIN_HomeTargetTempGraph 35
-//36
-//37
+//36 used
+//37 used
+//38 used
 
 #define VPIN_LEDPower12Voltage  40
 #define VPIN_LEDMainCycleInterval  41
@@ -114,11 +119,6 @@ int boardSTATUS = Status_Auto1;
 
 //////ElMeter
 #define VPIN_ElMeter_EnergyKWh     110
-#define VPIN_ElMeter_EnergyKWh1     118
-#define VPIN_ElMeter_EnergyKWh2     119
-#define VPIN_ElMeter_EnergyKWh_cor  120
-#define VPIN_ElMeter_EnergyKWh1_cor 121
-#define VPIN_ElMeter_EnergyKWh2_cor 122
 #define VPIN_ElMeter_EnergyKWhDelta     111
 #define VPIN_ElMeter_P1     112
 #define VPIN_ElMeter_P2     113
@@ -126,5 +126,11 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_ElMeter_V1     115
 #define VPIN_ElMeter_V2     116
 #define VPIN_ElMeter_V3     117
+#define VPIN_ElMeter_EnergyKWh1     118
+#define VPIN_ElMeter_EnergyKWh2     119
+#define VPIN_ElMeter_EnergyKWh_cor  120
+#define VPIN_ElMeter_EnergyKWh1_cor 121
+#define VPIN_ElMeter_EnergyKWh2_cor 122
 
+#define VPIN_Floor_ECHO     123
 
