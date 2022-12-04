@@ -32,6 +32,14 @@ int melody_bachtocc[] = {
     NOTE_A4,16, NOTE_G4,16, NOTE_A4,1, NOTE_G4,16, NOTE_F4,16, NOTE_D4,16, NOTE_E4,16, NOTE_C4,2, REST,16, NOTE_D4,1
 };
 
+int melody_LionSleepsTonight[] = {
+
+  NOTE_F4, 4, NOTE_G4, 4, NOTE_A4, 8, NOTE_G4, 4, NOTE_A4, 8, //1
+  NOTE_AS4, 4, NOTE_A4, 4, NOTE_G4, 8, NOTE_F4, 4, NOTE_G4, 8,
+  NOTE_A4, 4, NOTE_C4, 8, NOTE_C4, 4, NOTE_C4, 8, NOTE_C4, 4,
+  NOTE_C4, 1, //1st ending
+};
+
 // sizeof gives the number of bytes, each int value is composed of two bytes (16 bits)
 // there are two values per note (pitch and duration), so for each note there are four bytes
 //int num_notes=sizeof(melody)/sizeof(melody[0])/2; 
