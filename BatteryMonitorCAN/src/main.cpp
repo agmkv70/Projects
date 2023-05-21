@@ -8,7 +8,7 @@
 
 #define PIN_MEASUREVOLT A0
 
-float voltage=0, voltageCoef=0.01406010f;
+float voltage=0, voltageCoef=0.01406010f; // divider- 51:680 -maxV`15.75
 const int VArNumReadings = 10;
 float VArReadings[VArNumReadings]; //array for sliding average
 int VArIndex = 0;                   //current index
