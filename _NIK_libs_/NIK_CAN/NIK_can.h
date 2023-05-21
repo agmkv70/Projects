@@ -31,6 +31,9 @@ unsigned char rxBuf[8];
 #define CAN_Unit_FILTER_ESPWF 0x02L //ESP8266 WiFi-CAN bridge
 #define CAN_Unit_FILTER_ELCT1 0x03L //Electric power control
 #define CAN_Unit_FILTER_OUTDT 0x04L //Unit for outdoor temperature
+#define CAN_Unit_FILTER_AirHT 0x05L //Air heater
+#define CAN_Unit_FILTER_KULED 0x06L //LED control, kitchen
+#define CAN_Unit_FILTER_BatMo 0x07L //Battery monitor
 
 SimpleTimer timer;
 
@@ -208,6 +211,7 @@ void MainCycle_StartEvent();
 // }
 
 char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat);
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString, byte dataLen);
 
 void checkReadCAN() {
   if(digitalRead(CAN_PIN_INT)==HIGH){ //HIGH = no CAN received messages in buffer
@@ -236,15 +240,17 @@ void checkReadCAN() {
   #endif
 
   //if(dataLen < 2)
-  if(dataLen == 5){ //we need 5 bytes (1 =byte VPIN  +  4 =sizeof(float))
+  //if(dataLen == 5){ //we need 5 bytes (1 =byte VPIN  +  4 =sizeof(float))
     //vPinNumber = *rxBuf; //first byte is Number of Virtual PIN
     //vPinValue = *((float*)(rxBuf+1));
-
-    //if(*rxBuf==VPIN_BLYNK_TERMINAL){
-    //  setReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
-    //}else{
-    ProcessReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
-    //}
+  if(rxBuf!=NULL){
+    if(*rxBuf==VPIN_BLYNK_TERMINAL){
+      ProcessReceivedVirtualPinString(*rxBuf, (char*)(rxBuf+1), dataLen);
+    }else{
+      if(dataLen == 5){
+        ProcessReceivedVirtualPinValue(*rxBuf, *((float*)(rxBuf+1)));
+      }
+    }
   }
 }
 

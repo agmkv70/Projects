@@ -760,16 +760,24 @@ void Send2ServerElMeterData(){
       Serial.println(EnergyKWh,3);
     #endif //testmodeS
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh + _corr_EnergyKWh);
-    if((millis()-pred_EnergyKWhmillis)>=3600000L || pred_EnergyKWhmillis==0){
+    if((millis()-pred_EnergyKWhmillis)>=360000L || pred_EnergyKWhmillis==0){
       pred_EnergyKWhmillis = millis();
       if(_pred_EnergyKWh!=0){
-        addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, EnergyKWh - _pred_EnergyKWh);
+        addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, (EnergyKWh - _pred_EnergyKWh)*10);
       }
       _pred_EnergyKWh = EnergyKWh;
     }
   }else{
+
+    if((millis()-pred_EnergyKWhmillis)>=360000L || pred_EnergyKWhmillis==0){
+      pred_EnergyKWhmillis = millis();
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, 0); //send zero if couldn't read
+    }
+
+    #ifdef testmodeS2
     Serial.println();
-    return;
+    #endif
+    //return;
   }
 
   /*
@@ -816,11 +824,15 @@ void Send2ServerElMeterData(){
     Serial.println(P3,3);
   #endif //testmodeS
   if(res==1){
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, P1);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, P2);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, P3);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, fround(P1,0));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, fround(P2,0));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, fround(P3,0));
   }else{
-    return;
+    //send zero - to unblock heating (just in case)
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, 0);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, 0);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, 0);
+    //return;
   }
   
   res = ElMeter_GetInstantVoltage(&V1,&V2,&V3);
@@ -835,11 +847,11 @@ void Send2ServerElMeterData(){
     Serial.println(V3);
   #endif //testmodeS
   if(res==1){
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V1, V1);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V2, V2);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V3, V3);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V1, fround(V1,0));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V2, fround(V2,0));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V3, fround(V3,0));
   }else{
-    return;
+    //return;
   }
   
   //if(millis()-millisLastReport > 10000L){

@@ -44,7 +44,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_BoilerTargetTempNIGHT 38
 #define VPIN_SetBoilerPID_Isum_Zero 24
 #define VPIN_BoilerTargetTempGraph 25
-//26 is used
+//26 is used as VPIN_Home
 #define VPIN_HomePID_Kp 27 
 #define VPIN_HomePID_Ki 28 
 #define VPIN_HomePID_Kd 29 
@@ -54,9 +54,9 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_HomeTargetTemp 33
 #define VPIN_SetHomePID_Isum_Zero 34
 #define VPIN_HomeTargetTempGraph 35
-//36 used
-//37 used
-//38 used
+//36 used as VPIN_PIDSTATUS
+//37 used as VPIN_VALVESTATUS
+//38 used as VPIN_BoilerTargetTempNIGHT
 
 #define VPIN_LEDPower12Voltage  40
 #define VPIN_LEDMainCycleInterval  41
@@ -66,7 +66,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_LEDSetPWMch3  45
 #define VPIN_LEDSetPWMch4  46
 
-//HEATER:
+//AirHEATER:
 #define VPIN_TEHPID_Kp 50 
 #define VPIN_TEHPID_Ki 51 
 #define VPIN_TEHPID_Kd 52 

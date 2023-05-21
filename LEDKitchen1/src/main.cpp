@@ -23,13 +23,6 @@ int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got 
 
 int MainCycleInterval=300, PWMch1=0, PWMch2=0, PWMch3=0, PWMch4=0;
 
-//float fround(float r, byte dec){
-//	if(dec>0) for(byte i=0;i<dec;i++) r*=10;
-//	r=(long)(r+0.5);
-//	if(dec>0) for(byte i=0;i<dec;i++) r/=10;
-//	return r;
-//}
-
 void Cycle_measure12v(){
   float avolt = ((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
   float K=0.01;
@@ -50,7 +43,7 @@ void MainCycle_StartEvent(){
 	//digitalWrite(13,LOW);
 }
 
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
 	switch(vPinNumber){
 		case VPIN_STATUS:
 			boardSTATUS = (int)vPinValueFloat;
@@ -207,10 +200,20 @@ void setup() {
 		#endif
 	}
 
-  //receive 0x100 messages:
+  //initialize filters Masks(0-1),Filters(0-5):
+  unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
+  unsigned long filt = (0x0100L | CAN_Unit_FILTER_KULED)<<16;	//0x04	0x01040000;
+  //first mask:   ID=0x100
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
   CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-   
+  CAN0.init_Filt(1,0,0x01000000);                // Init second filter...
+  //second mask:  ID=0x010F - receive only CAN_Unit_MASK = CAN_Unit_FILTER_KULED
+  CAN0.init_Mask(1,0,mask);                // Init second mask...
+  CAN0.init_Filt(2,0,filt);                // Init third filter...
+  CAN0.init_Filt(3,0,filt);                // Init fouth filter...
+  CAN0.init_Filt(4,0,filt);                // Init fifth filter...
+  CAN0.init_Filt(5,0,filt);                // Init sixth filter...
+
   #ifdef testmode
 	CAN0.setMode(MCP_LOOPBACK);
 	#endif

@@ -20,18 +20,33 @@ SimpleTimer timer2;
 
 int LEDState=0;
 long timeLED;
-long LEDFlashOn=10,   LEDOnWait=10,   LEDOnBHigh=100, LEDOnBLow=200;
-long LEDFlashOff=5000,LEDOffWait=5000,LEDOffBHigh=40, LEDOffBLow=1000;
+long LEDFlashOn=10,LEDFlashOff=5000;
 void LEDFlashMode(byte mode){
   if(mode==0){ //wait
-    LEDFlashOn=LEDOnWait;
-    LEDFlashOff=LEDOffWait;
+    LEDFlashOn=10;
+    LEDFlashOff=5000;
   }else if(mode==1){ //high
-    LEDFlashOn=LEDOnBHigh;
-    LEDFlashOff=LEDOffBHigh;
+    LEDFlashOn=100;
+    LEDFlashOff=40;
   }else if(mode==2){ //low
-    LEDFlashOn=LEDOnBLow;
-    LEDFlashOff=LEDOffBLow;
+    LEDFlashOn=200;
+    LEDFlashOff=1000;
+  }
+}
+//left yellow(green?) LED
+int LEDState2=0;
+long timeLED2;
+long LEDFlashOn2=10,LEDFlashOff2=5000;
+void LEDFlashMode2(byte mode){
+  if(mode==0){ //wait (off)
+    LEDFlashOn2=10;
+    LEDFlashOff2=5000;
+  }else if(mode==1){ //high (charging)
+    LEDFlashOn2=500;
+    LEDFlashOff2=500;
+  }else if(mode==2){ //low  (charged (off))
+    LEDFlashOn2=10;
+    LEDFlashOff2=200;
   }
 }
 long buttonDownDebounce=0;
@@ -48,17 +63,22 @@ long startTime;
 #define DischargeAlarmV 12.4 //12.4
 #define DischargeAlarmReset 12.7 //12.7
 
+#define EnableAutoChargeV 13.8 //auto can be turned on
+#define OffAutoChargeV 14.0 //turn off charging
+
 #define OverchargeAlarmV 14.4  //14.4
 #define OverchargeAlarmReset 14.2  //14.2
 
-#define VChangeToBalance 0.1 //as small as i can reliably detect
+/*#define VChangeToBalance 0.1 //as small as i can reliably detect
 #define BalanceTime 7200000 //2hours (2*3600sec*1000millis)
 float lastBalancedV=0;
 long startBalanceTime=0;
+*/
 
 enum StatesMelodyPlay {st_off,st_melodyPlay,st_forceStopped}; //forceStopped=Silenced (LED continues flashing)
 StatesMelodyPlay state_discharged=st_off; 
 StatesMelodyPlay state_charged=st_off; 
+int state_AutoCharging=0; // 0/1 - starts when charge button pressed, ends via button or high voltage - priority state (when =1)
 
 void repeatMelody();
 void timer_call_playmelody() { //////////////////
@@ -122,11 +142,17 @@ void startMelody(byte mel_type,long aMelodyPauseBeforeRepeat=0){
     melody = melody_oda2joy;
     num_notes=sizeof(melody_oda2joy)/sizeof(melody_oda2joy[0])/2; 
     LEDFlashMode(1);
+    LEDFlashMode2(0);
 
   }else if(mel_type==2){ //bach toccata d minor
     melody = melody_bachtocc;
     num_notes=sizeof(melody_bachtocc)/sizeof(melody_bachtocc[0])/2; 
     LEDFlashMode(2);
+    LEDFlashMode2(0);
+  }else if(mel_type==3){ //LionSleepsTonight
+    melody = melody_LionSleepsTonight;
+    num_notes=sizeof(melody_LionSleepsTonight)/sizeof(melody_LionSleepsTonight[0])/2; 
+    LEDFlashMode2(2);
   }
 
   noTone(PIN_Buzzer);
@@ -150,11 +176,16 @@ void stopMelody(){
 }
 
 void onButtonPressed() { ////////////////////////
-  /*if(melodyPlay==0){
-    startMelody(1);
-  }else{
-    stopMelody();
-  }*/
+  
+  if(state_AutoCharging==1){ //turn off charging
+    state_AutoCharging=0;
+     //off autocharging:
+    digitalWrite(PIN_RELAY1off,HIGH);
+    delay(4);
+    digitalWrite(PIN_RELAY1off,LOW);
+    LEDFlashMode2(0);
+    return;
+  }
 
   if(state_discharged==st_melodyPlay){
     state_discharged = st_forceStopped;
@@ -168,8 +199,7 @@ void onButtonPressed() { ////////////////////////
     delay(20);
     noTone(PIN_Buzzer);
     digitalWrite(PIN_Buzzer,HIGH);
-  }
-  if(state_charged==st_melodyPlay){
+  }else if(state_charged==st_melodyPlay){
     state_charged = st_forceStopped;
     stopMelody();
 
@@ -181,11 +211,30 @@ void onButtonPressed() { ////////////////////////
     delay(20);
     noTone(PIN_Buzzer);
     digitalWrite(PIN_Buzzer,HIGH);
+  }else if(state_AutoCharging==0 && voltage < EnableAutoChargeV){ //turn on charging
+    state_AutoCharging=1;
+    //on autocharging:
+    digitalWrite(PIN_RELAY2on,HIGH);
+    delay(4);
+    digitalWrite(PIN_RELAY2on,LOW);
+    LEDFlashMode2(1);
+    return;
   }
 
 }
 
 void OnVoltageMeasured(){ ///////////////////////
+
+  if(state_AutoCharging==1 && OffAutoChargeV < voltage){ //turn off auto charging
+    state_AutoCharging=0;
+     //off autocharging:
+    digitalWrite(PIN_RELAY1off,HIGH);
+    delay(4);
+    digitalWrite(PIN_RELAY1off,LOW);
+    LEDFlashMode2(0);
+
+    startMelody(3,0); //lion sleeps tonight, no repeat (0 interval)
+  }
 
   //discharged:
   if(BatteryConnectedV < voltage && voltage <= DischargeAlarmV){ //low voltage -> discharged
@@ -193,7 +242,7 @@ void OnVoltageMeasured(){ ///////////////////////
       state_discharged=st_melodyPlay;
     }
   }
-  if(voltage >= DischargeAlarmReset && state_discharged != st_off){
+  if(voltage >= DischargeAlarmReset && state_discharged != st_off){ //low v melody turn off
     state_discharged=st_off;
     stopMelody();
     LEDFlashMode(0);
@@ -209,16 +258,17 @@ void OnVoltageMeasured(){ ///////////////////////
       state_charged=st_melodyPlay;
     }
   }
-  if(voltage <= OverchargeAlarmReset && state_charged != st_off){
+  if(voltage <= OverchargeAlarmReset && state_charged != st_off){ //high v melody turn off
     state_charged=st_off;
     stopMelody();
     LEDFlashMode(0);
   }
   if(state_charged == st_melodyPlay && melodyPlay==0){
-    startMelody(1,20000); //joy
+    startMelody(1,10000); //joy
     LEDFlashMode(1);
   }
 
+  /*
   //balancing:
   if(abs(voltage-lastBalancedV) > VChangeToBalance){
     lastBalancedV = voltage; 
@@ -234,7 +284,7 @@ void OnVoltageMeasured(){ ///////////////////////
     digitalWrite(PIN_RELAY1off,HIGH);
     delay(4);
     digitalWrite(PIN_RELAY1off,LOW);
-  }
+  }*/
 }
 
 void measureVoltage(){ //////////////////////////
@@ -296,12 +346,13 @@ void setup() { ////////////////////////////////////////////////
   pinMode(PIN_RELAY2on, OUTPUT);
   digitalWrite(PIN_RELAY2on,LOW);
   
-  //off balancer
+  //off autocharging
   digitalWrite(PIN_RELAY1off,HIGH);
   delay(4);
   digitalWrite(PIN_RELAY1off,LOW);
 
   LEDFlashMode(0);
+  LEDFlashMode2(0);
 }
 
 void loop() { /////////////////////////////////////////////////
@@ -314,15 +365,28 @@ void loop() { /////////////////////////////////////////////////
     if(LEDDuration>LEDFlashOn){
       LEDState=0;
       digitalWrite(PIN_LEDOnShield1,LOW);
-      digitalWrite(PIN_LEDOnShield2,LOW);
       timeLED = millis();
     }
   }else{
     if(LEDDuration>LEDFlashOff){
       LEDState=1;
       digitalWrite(PIN_LEDOnShield1,HIGH);
-      digitalWrite(PIN_LEDOnShield2,HIGH);
       timeLED = millis();
+    }
+  }
+  //second (left,green/yellow) LED
+  long LEDDuration2=millis()-timeLED2;
+  if(LEDState2>0){
+    if(LEDDuration2>LEDFlashOn2){
+      LEDState2=0;
+      digitalWrite(PIN_LEDOnShield2,LOW);
+      timeLED2 = millis();
+    }
+  }else{
+    if(LEDDuration2>LEDFlashOff2){
+      LEDState2=1;
+      digitalWrite(PIN_LEDOnShield2,HIGH);
+      timeLED2 = millis();
     }
   }
 

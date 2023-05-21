@@ -20,6 +20,8 @@
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
+WidgetTerminal BlynkTerminal(VPIN_BLYNK_TERMINAL);
+
 #ifdef MQTT_On
 ////////////////////////////////////////////////////////////////
 #include <PubSubClient.h>
@@ -51,7 +53,7 @@ void testSendQueueMQTT(){
   //Blynk.syncVirtual(VPIN_Home);
   //Blynk.syncVirtual(VPIN_OutdoorTemp);
   //Blynk.syncVirtual(VPIN_BoilerPower);
-  //setReceivedVirtualPinValue(69,100);
+  //ProcessReceivedVirtualPinValue(69,100);
   //#endif
 }
 //#endif
@@ -71,7 +73,7 @@ void SendCANQueueError(){
 /////////////////////////////////////////////////////////////////
 
 //Send value to Blynk server via Wi-Fi (called after we received CAN data)
-char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat) 
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat) 
 {
   Blynk.virtualWrite(vPinNumber, vPinValueFloat);
 
@@ -81,6 +83,20 @@ char setReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat)
   char strval[20];
   dtostrf(vPinValueFloat,10,1,strval);
   MQTTClient.publish(topicPinName.c_str(), strval);		////////// send to MQTT broker
+  #endif
+
+  return 0;
+}
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString) 
+{
+  BlynkTerminal.println(vPinString);
+
+  #ifdef MQTT_On
+  String topicPinName = "/home1/VPIN_";
+  topicPinName += (int)vPinNumber;
+  //char strval[20];
+  //dtostrf(vPinValueFloat,10,1,strval);
+  MQTTClient.publish(topicPinName.c_str(), vPinString);		////////// send to MQTT broker
   #endif
 
   return 0;
@@ -342,11 +358,11 @@ void setup(){
   //initialize filters Masks(0-1),Filters(0-5):
   unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
   unsigned long filt = (0x0100L | CAN_Unit_FILTER_ESPWF)<<16;	//0x04	0x01040000;
-  //first mask: ID=0x100
+  //first mask:    ID=0x100
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
   CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
   CAN0.init_Filt(1,0,0x01000000);                // Init second filter...
-  //second mask: ID=0x010F - receive only CAN_Unit_MASK = CAN_Unit_FILTER_ESPWF
+  //second mask:  ID=0x010F - receive only CAN_Unit_MASK = CAN_Unit_FILTER_ESPWF
   CAN0.init_Mask(1,0,mask);                // Init second mask...
   CAN0.init_Filt(2,0,filt);                // Init third filter...
   CAN0.init_Filt(3,0,filt);                // Init fouth filter...
