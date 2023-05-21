@@ -8,7 +8,7 @@
 
 #define PIN_MEASUREVOLT A0
 
-float voltage=0, voltageCoef=0.015157616f;
+float voltage=0, voltageCoef=0.01406010f;
 const int VArNumReadings = 10;
 float VArReadings[VArNumReadings]; //array for sliding average
 int VArIndex = 0;                   //current index
@@ -142,7 +142,7 @@ void EEPROM_restoreValues(){
 void setup() {
 
   #ifdef testmode
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("Start");
   Serial.flush();
   #endif
@@ -150,7 +150,7 @@ void setup() {
   //EEPROM_restoreValues();
   //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
 
-  analogReference(INTERNAL);
+  analogReference(INTERNAL); //1.1 on 328p
   startTime = millis();
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
