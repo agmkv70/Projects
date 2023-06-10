@@ -134,3 +134,5 @@ int boardSTATUS = Status_Auto1;
 
 #define VPIN_Floor_ECHO     123
 
+#define VPIN_DCVoltmeter1   124
+

@@ -1,4 +1,4 @@
-#define testmode
+//#define testmode
 
 #define CAN_PIN_INT 9
 #define CAN_PIN_CS  10 
@@ -8,7 +8,7 @@
 
 #define PIN_MEASUREVOLT A0
 
-float voltage=0, voltageCoef=0.01406010f; // divider- 51:680 -maxV`15.75
+float voltage=0, voltageCoef=0.01599386f; // divider- 51:680 -maxV`15.75
 const int VArNumReadings = 10;
 float VArReadings[VArNumReadings]; //array for sliding average
 int VArIndex = 0;                   //current index
@@ -17,7 +17,7 @@ long startTime;
 
 int mainTimerId;
 int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got valid values, not junk
-int MainCycleInterval=3; //seconds
+int MainCycleInterval=30; //seconds
 
 void OnVoltageMeasured();
 
@@ -70,8 +70,8 @@ void MainCycle_StartEvent(){
   #endif
 
   //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_LEDPower12Voltage,fround(avolt,2)); //rounded 0.0 value
-  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_LEDPower12Voltage,fround(voltage,2));
-  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,1000000+fround(voltage,2));
+  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_DCVoltmeter1,fround(voltage,2));
+  //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,1000000+fround(voltage,2));
   //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Floor_ECHO,111); 
 
 	//digitalWrite(13,LOW);
@@ -190,7 +190,7 @@ void setup() {
   mainTimerId = timer.setInterval(1000L*MainCycleInterval, MainCycle_StartEvent); //start regularly
   timer.setInterval(300L,measureVoltage);
 
-  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,57497.1); //START
+  //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,57497.1); //START
 }
 
 void loop() {
