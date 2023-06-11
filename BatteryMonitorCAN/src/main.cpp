@@ -6,6 +6,13 @@
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
+const int MonitorVPin = 0;
+const int MonitorAPin = 1;
+static volatile unsigned char currentAdcChannel;
+
 #define PIN_MEASUREVOLT A0
 
 float voltage=0, voltageCoef=0.01599386f; // divider- 51:680 -maxV`15.75
@@ -138,6 +145,24 @@ void EEPROM_restoreValues(){
   //PWMch4 = EEPROM.read(VPIN_LEDSetPWMch4);
 }
 
+void setupADC_and_TimerInt(){
+   // Set up the ADC. We need to read the mains voltage frequently in order to get a sufficiently accurate RMS reading.
+  // To avoid using too much CPU time, we use the conversion-complete interrupt. This means we can't use analogRead(),
+  // we have to access the ADC ports directly. 
+  currentAdcChannel = MonitorVPin;      // set up which analog input we will read first
+  ADMUX = 0b01000000 | currentAdcChannel;
+  ADCSRB = 0b00000000; // Analog Input bank 1
+  ADCSRA = 0b10011111; // ADC enable, manual trigger mode, ADC interrupt enable, prescaler = 128
+  
+  // Set up a timer 2 interrupt every 1ms to kick off ADC conversions etc.
+  // Do this last after we have initialized everything else
+  ASSR = 0;
+  TCCR2A = (1 << WGM21);    // CTC mode
+  TCCR2B = (1 << CS22);     // prescaler = 64
+  TCNT2 = 0;                // restart counter
+  OCR2A = 249;              // compare register = 249, will be reached after 1ms
+  TIMSK2 = (1 << OCIE2A);
+}
 
 void setup() {
 
@@ -191,10 +216,43 @@ void setup() {
   timer.setInterval(300L,measureVoltage);
 
   //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,57497.1); //START
+
+  setupADC_and_TimerInt();
 }
 
 void loop() {
   timer.run();
   checkReadCAN();
+}
+
+
+ISR(TIMER2_COMPA_vect){ // Interrupt service routine for the 1ms tick
+  TIFR2 = (1 << OCF2B);  // shouldn't be needed according to the documentation, but is (perhaps the ISR is too short without it?)
+  // Kick off a new ADC conversion. We already set the multiplexer to the correct channel when the last conversion finished.
+  ADCSRA = 0b11001111;   // ADC enable, ADC start, manual trigger mode, ADC interrupt enable, prescaler = 128
+}
+
+ISR(ADC_vect){ // Interrupt service routine for ADC conversion complete
+  // The mcu requires us to read the ADC data in the order (low byte, high byte)
+  unsigned char adcl = ADCL;
+  unsigned char adch = ADCH;
+  unsigned int adcVal = (adch << 8) | adcl; //current ADC reading
+  
+  switch(currentAdcChannel){ 
+    case MonitorVPin:
+      //...
+
+      currentAdcChannel = MonitorAPin;
+    break;
+    case MonitorAPin:
+      //...
+
+      currentAdcChannel = MonitorVPin;
+    break;
+  }
+  
+  // Set the ADC multiplexer to the channel we want to read next. Setting it here rather than in the tick ISR allows the input
+  // to settle, which is required for ADC input sources with >10k resistance.
+  ADMUX = (0b01000000 | currentAdcChannel);   // Vcc reference, select current channel
 }
 
