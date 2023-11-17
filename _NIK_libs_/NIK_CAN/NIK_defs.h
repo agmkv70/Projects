@@ -134,5 +134,10 @@ int boardSTATUS = Status_Auto1;
 
 #define VPIN_Floor_ECHO     123
 
-#define VPIN_DCVoltmeter1   124
-
+#define VPIN_BAT_VoltmeterV   124
+#define VPIN_BAT_VoltmeterA   125
+#define VPIN_BAT_EnergyWH     126
+#define VPIN_BAT_MaxEnergyWH  127
+#define VPIN_BAT_EnergyPercent   128
+#define VPIN_BAT_CurPowerW       129
+#define VPIN_BAT_SendIntervalSec 130

@@ -9,27 +9,33 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
-const int MonitorVPin = 0;
-const int MonitorAPin = 1;
+const int MonitorVPin = 2;
+const int MonitorAPin = 3;
 static volatile unsigned char currentAdcChannel;
 
-#define PIN_MEASUREVOLT A0
+float voltageV=0, voltageCoef=0.01550753; // divider-4.73(100k::(20k+6.8k)) maxV-15.6
+float currentA=0, currentCoef=-(0.5f); //-4=0; -45=+20.45A
+const int curOffsetMidpoint=512-4;
 
-float voltage=0, voltageCoef=0.01599386f; // divider- 51:680 -maxV`15.75
+float deltaTms=2; //1ms x2 = 2ms/500Hz
+float SumDeltaWs=0;
+float BAT_CurPowerW=0;
+float BAT_EnergyWH=0,BAT_MaxEnergyWH=0,BAT_EnergyPercent=0;
+
 const int VArNumReadings = 10;
 float VArReadings[VArNumReadings]; //array for sliding average
 int VArIndex = 0;                   //current index
 float VArSumTotal = 0;
-long startTime;                
+long startTime,lastSendTime=0,firstSend=1;                
 
 int mainTimerId;
-int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got valid values, not junk
-int MainCycleInterval=30; //seconds
+int eepromVIAddr=1000,eepromValueIs=7650+3; //if this is in eeprom, then we got valid values, not junk
+int MainCycleInterval=5; //seconds
 
-void OnVoltageMeasured();
+/*void OnVoltageMeasured();
 
 void measureVoltage(){ //////////////////////////
-  int val = analogRead(PIN_MEASUREVOLT);
+  int val = analogRead(PIN_MEASURE_V);
   float curV = (float)val*voltageCoef;
 
   //sliding average:
@@ -60,28 +66,39 @@ void OnVoltageMeasured(){ ///////////////////////
 
   #ifdef testmode
 		Serial.print("voltage = ");
-		Serial.println(voltage);
+		Serial.println(voltageV);
   #endif
 
   //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,fround(voltage,2)); //rounded 0.0 value
 }
+*/
 
 void MainCycle_StartEvent(){
-  //digitalWrite(13,HIGH);
-
-  //float avolt = voltage;
-    
   #ifdef testmode
-		Serial.print("----------a0volt = ");
-		Serial.println(fround(voltage,2));
+		Serial.print("----------V = ");
+		Serial.print(fround(voltageV,2));
+    Serial.print("   -------A = ");
+		Serial.println(fround(currentA,2));
   #endif
 
-  //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_LEDPower12Voltage,fround(avolt,2)); //rounded 0.0 value
-  addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_DCVoltmeter1,fround(voltage,2));
-  //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,1000000+fround(voltage,2));
-  //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_Floor_ECHO,111); 
+  long curTime = millis();
+  if(firstSend){
+    firstSend = 0;
+    lastSendTime = curTime;
+    BAT_EnergyWH += SumDeltaWs/3600;
+    SumDeltaWs = 0;
+  }else{
+    BAT_CurPowerW = SumDeltaWs / (curTime-lastSendTime)*1000; //average
+    lastSendTime = curTime;
+    BAT_EnergyWH += SumDeltaWs/3600;
+    SumDeltaWs = 0;
+    BAT_EnergyPercent = BAT_MaxEnergyWH==0 ? 0 : (BAT_EnergyWH / BAT_MaxEnergyWH * 100.0f);
 
-	//digitalWrite(13,LOW);
+    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(voltageV,2));
+    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterA,fround(currentA,2));
+    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_CurPowerW,fround(BAT_CurPowerW,0));
+    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_EnergyPercent,fround(BAT_EnergyPercent,1));
+  }
 }
 
 char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
@@ -94,7 +111,7 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 			boardSTATUS = (int)vPinValueFloat;
 			EEPROM_storeValues();
 			break;
-		case VPIN_LEDSetMainCycleInterval:
+		case VPIN_BAT_SendIntervalSec:
 			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<5)
 				break;
 			MainCycleInterval = (int)vPinValueFloat;
@@ -102,7 +119,21 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
 			EEPROM_storeValues();
 			break;
-		//case VPIN_LEDSetPWMch1:  PWMch1  = vPinValueFloat; analogWrite(PWMpin1,PWMch1); EEPROM_storeValues(); break;
+		case VPIN_BAT_EnergyWH:  
+      BAT_EnergyWH  = vPinValueFloat;  
+      BAT_EnergyPercent = BAT_MaxEnergyWH==0 ? 0 : (BAT_EnergyWH / BAT_MaxEnergyWH * 100.0f);
+      EEPROM_storeValues(); 
+      break;
+    case VPIN_BAT_MaxEnergyWH:  
+      BAT_MaxEnergyWH  = vPinValueFloat;  
+      BAT_EnergyPercent = BAT_MaxEnergyWH==0 ? 0 : (BAT_EnergyWH / BAT_MaxEnergyWH * 100.0f);
+      EEPROM_storeValues(); 
+      break;
+    case VPIN_BAT_EnergyPercent:  
+      BAT_EnergyPercent  = vPinValueFloat;
+      BAT_EnergyWH = BAT_MaxEnergyWH * BAT_EnergyPercent / 100.0f;
+      EEPROM_storeValues(); 
+      break;
 		default:
 			return 0;
 	}
@@ -115,14 +146,12 @@ char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString,
 void EEPROM_storeValues(){
   EEPROM_WriteAnything(eepromVIAddr,eepromValueIs);
   
-  EEPROM.update(VPIN_STATUS,(unsigned char)boardSTATUS);
-  EEPROM.update(VPIN_LEDMainCycleInterval,(unsigned char)(MainCycleInterval/10));
+  EEPROM.update(0,(unsigned char)boardSTATUS);
+  EEPROM.update(10,(unsigned char)(MainCycleInterval));
 
-  //EEPROM.update(VPIN_LEDSetPWMch1,(unsigned char)PWMch1);
-  //EEPROM.update(VPIN_LEDSetPWMch2,(unsigned char)PWMch2);
-  //EEPROM.update(VPIN_LEDSetPWMch3,(unsigned char)PWMch3);
-  //EEPROM.update(VPIN_LEDSetPWMch4,(unsigned char)PWMch4);
-
+  EEPROM_WriteAnything(VPIN_BAT_EnergyWH                ,(float)BAT_EnergyWH);
+  EEPROM_WriteAnything(VPIN_BAT_EnergyWH+sizeof(float)*1,(float)BAT_MaxEnergyWH);
+  EEPROM_WriteAnything(VPIN_BAT_EnergyWH+sizeof(float)*2,(float)BAT_EnergyPercent);
 }
 void EEPROM_restoreValues(){
   int ival;
@@ -132,17 +161,16 @@ void EEPROM_restoreValues(){
     return; //never wrote valid values into eeprom
   }
 
-  boardSTATUS = EEPROM.read(VPIN_STATUS);
+  boardSTATUS = EEPROM.read(0);
   
-  int aNewInterval = EEPROM.read(VPIN_LEDMainCycleInterval)*10;
+  int aNewInterval = EEPROM.read(10);
   if(aNewInterval != 0){
     MainCycleInterval = aNewInterval;
   }
   
-  //PWMch1 = EEPROM.read(VPIN_LEDSetPWMch1);
-  //PWMch2 = EEPROM.read(VPIN_LEDSetPWMch2);
-  //PWMch3 = EEPROM.read(VPIN_LEDSetPWMch3);
-  //PWMch4 = EEPROM.read(VPIN_LEDSetPWMch4);
+  EEPROM_ReadAnything(VPIN_BAT_EnergyWH                ,BAT_EnergyWH);
+  EEPROM_ReadAnything(VPIN_BAT_EnergyWH+sizeof(float)*1,BAT_MaxEnergyWH);
+  EEPROM_ReadAnything(VPIN_BAT_EnergyWH+sizeof(float)*2,BAT_EnergyPercent);
 }
 
 void setupADC_and_TimerInt(){
@@ -150,7 +178,7 @@ void setupADC_and_TimerInt(){
   // To avoid using too much CPU time, we use the conversion-complete interrupt. This means we can't use analogRead(),
   // we have to access the ADC ports directly. 
   currentAdcChannel = MonitorVPin;      // set up which analog input we will read first
-  ADMUX = 0b01000000 | currentAdcChannel;
+  ADMUX = 0b00000000 | currentAdcChannel; //ext ref
   ADCSRB = 0b00000000; // Analog Input bank 1
   ADCSRA = 0b10011111; // ADC enable, manual trigger mode, ADC interrupt enable, prescaler = 128
   
@@ -158,24 +186,25 @@ void setupADC_and_TimerInt(){
   // Do this last after we have initialized everything else
   ASSR = 0;
   TCCR2A = (1 << WGM21);    // CTC mode
-  TCCR2B = (1 << CS22);     // prescaler = 64
+  TCCR2B = (1 << CS22);     // prescaler = 64 (256? -> 4ms(250Hz))
   TCNT2 = 0;                // restart counter
-  OCR2A = 249;              // compare register = 249, will be reached after 1ms
+  OCR2A = 249;              // compare register = 249, will be reached after 1ms (1000Hz)
   TIMSK2 = (1 << OCIE2A);
 }
 
 void setup() {
 
   #ifdef testmode
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("Start");
   Serial.flush();
   #endif
 
-  //EEPROM_restoreValues();
-  //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
+  EEPROM_restoreValues();
+  timer.setInterval(1000L*3600L, EEPROM_storeValues); //once in 1h remember critical values
 
-  analogReference(INTERNAL); //1.1 on 328p
+  //analogReference(INTERNAL); //1.1 on 328p
+  analogReference(EXTERNAL); //connected to 3.3V pin
   startTime = millis();
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
@@ -213,10 +242,11 @@ void setup() {
   //pinMode(13,OUTPUT);//led
 
   mainTimerId = timer.setInterval(1000L*MainCycleInterval, MainCycle_StartEvent); //start regularly
-  timer.setInterval(300L,measureVoltage);
+  //timer.setInterval(300L,measureVoltage);
 
   //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL,57497.1); //START
 
+  SumDeltaWs = 0;
   setupADC_and_TimerInt();
 }
 
@@ -240,12 +270,21 @@ ISR(ADC_vect){ // Interrupt service routine for ADC conversion complete
   
   switch(currentAdcChannel){ 
     case MonitorVPin:
-      //...
+      voltageV = (float)adcVal*voltageCoef;
 
       currentAdcChannel = MonitorAPin;
     break;
     case MonitorAPin:
-      //...
+      int curVal = adcVal-curOffsetMidpoint;
+      if(-1<=curVal && curVal<=1){ //cut off noise
+        curVal=0;
+      }
+      currentA = (float)(curVal)*currentCoef;
+      float DeltaWs = voltageV*currentA*deltaTms/1000.0f;
+      if(DeltaWs<0.0f){
+        DeltaWs *= 1.065f; //13.3/12.4 - about 7% loss (or convertion to ah)
+      }
+      SumDeltaWs += DeltaWs;
 
       currentAdcChannel = MonitorVPin;
     break;
@@ -253,6 +292,6 @@ ISR(ADC_vect){ // Interrupt service routine for ADC conversion complete
   
   // Set the ADC multiplexer to the channel we want to read next. Setting it here rather than in the tick ISR allows the input
   // to settle, which is required for ADC input sources with >10k resistance.
-  ADMUX = (0b01000000 | currentAdcChannel);   // Vcc reference, select current channel
+  ADMUX = (0b00000000 | currentAdcChannel);   // ext reference, select current channel
 }
 

@@ -1,4 +1,4 @@
-#include <avr/io.h>
+/*#include <avr/io.h>
 #include <avr/interrupt.h>
 
 const int mainsMonitorRefPin = 0;
@@ -54,4 +54,4 @@ ISR(ADC_vect)
   // Set the ADC multiplexer to the channel we want to read next. Setting if here rather than in the tick ISR allows the input
   // to settle, which is required for ADC input sources with >10k resistance.
   ADMUX = (0b01000000 | currentAdcChannel);   // Vcc reference, select current channel
-}
+}*/

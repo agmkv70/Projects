@@ -61,13 +61,13 @@ long startTime;
 
 #define BatteryConnectedV 7
 #define DischargeAlarmV 12.4 //12.4
-#define DischargeAlarmReset 12.7 //12.7
+#define DischargeAlarmReset 12.6 //12.7
 
-#define EnableAutoChargeV 13.8 //auto can be turned on
-#define OffAutoChargeV 14.0 //turn off charging
+#define EnableAutoChargeV 13.5 //auto can be turned on
+#define OffAutoChargeV 13.7 //turn off charging
 
-#define OverchargeAlarmV 14.4  //14.4
-#define OverchargeAlarmReset 14.2  //14.2
+#define OverchargeAlarmV 14.2  //14.4
+#define OverchargeAlarmReset 14.0  //14.2
 
 /*#define VChangeToBalance 0.1 //as small as i can reliably detect
 #define BalanceTime 7200000 //2hours (2*3600sec*1000millis)

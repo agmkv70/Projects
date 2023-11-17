@@ -20,11 +20,12 @@
 int mainTimerId,measure12vId;
 float average12v;
 int eepromVIAddr=1000,eepromValueIs=7650+0; //if this is in eeprom, then we got valid values, not junk
+float VoltCoef = 0.017374187; // divider(100k::(6.8k)) maxV-17
 
 int MainCycleInterval=300, PWMch1=0, PWMch2=0, PWMch3=0, PWMch4=0;
 
 void Cycle_measure12v(){
-  float avolt = ((float)analogRead(AVreadpin)/1000*15.492773); //reading of 12V
+  float avolt = (float)analogRead(AVreadpin)*VoltCoef; //reading of 12V
   float K=0.01;
   average12v = (1-K)*average12v + K*avolt; //K=[0..1]      t = (1-K) * dt / K      dt=0.050s; K=0.01; t=4.95s(supress waves)
 }
@@ -65,6 +66,9 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 			return 0;
 	}
 	return 1;
+}
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString, byte dataLen){
+  return 0;
 }
 
 void EEPROM_storeValues(){
@@ -167,6 +171,8 @@ void setup() {
   EEPROM_restoreValues();
   //timer.setInterval(1000L*600L, EEPROM_storeValues); //once in 10 min remember critical values
   average12v=0;
+
+  analogReference(INTERNAL); //1.1 on 328p
 
   #ifdef testmode
   Serial.begin(115200);
