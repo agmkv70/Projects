@@ -87,7 +87,7 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 
   return 0;
 }
-char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString) 
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString, byte dataLen) 
 {
   BlynkTerminal.println(vPinString);
 
@@ -143,7 +143,7 @@ BLYNK_WRITE_DEFAULT() {
 // This function will run every time Blynk connection is established
 BLYNK_CONNECTED() {
   //get data stored in virtual pin V0 from server. Server will push these pins and BLYNK_WRITE will be 
-  Blynk.syncVirtual(VPIN_BoilerTargetTemp,
+  Blynk.syncVirtual(VPIN_BoilerTargetTempDAY,VPIN_BoilerTargetTempNIGHT,
                     VPIN_STATUS,
                     VPIN_PIDSTATUS,
                     VPIN_VALVESTATUS,
@@ -245,21 +245,6 @@ void MQTTCallback(char* topic, byte* payload, unsigned int length){ //receive fr
 #endif //MQTT_On
 
 #ifdef ntptime
-bool getLocalTime(struct tm * info, uint32_t ms=5000)
-{
-    uint32_t start = millis();
-    time_t now;
-    while((millis()-start) <= ms) {
-        time(&now);
-        localtime_r(&now, info);
-        if(info->tm_year > (2016 - 1900)){
-            return true;
-        }
-        delay(10);
-    }
-    return false;
-}
-
 void printLocalTime(){
   struct tm timeinfo;
   //MQTTClient.publish("terminal", "print time...");
