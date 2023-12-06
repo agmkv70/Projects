@@ -4,8 +4,6 @@
 #include <ArduinoOTA.h>
 //#include <ESP8266WiFi.h> //gone to esp32
 #include <PubSubClient.h>
-//#include <OneWire.h>
-//#include <DallasTemperature.h>
 #include <OpenTherm.h>
 
 //TTGO:
@@ -46,9 +44,6 @@ int btnCick = false;
 const int inPin = 12;
 const int outPin = 13;
 
-////Data wire is connected to 14 pin on the OpenTherm Shield
-//#define ONE_WIRE_BUS 14
-
 const char* ssid = "WLNA";
 const char* password = "HKP35241";
 const char* mqtt_server = "192.168.0.130";
@@ -56,8 +51,6 @@ const int   mqtt_port = 1883;
 const char* mqtt_user = "";
 const char* mqtt_password = "";
 
-//OneWire oneWire(ONE_WIRE_BUS);
-//DallasTemperature sensors(&oneWire);
 OpenTherm OpenThermIf(inPin, outPin);
 WiFiClient espClient;
 PubSubClient MQTTClient(espClient);
@@ -65,10 +58,6 @@ char buf[10];
 
 float CHSetPoint = 24; //set point
 float CHCurTemp = 0; //current temperature
-//pv_last = 0, //prior temperature
-//ierr = 0, //integral error
-//dt = 0, //time between measurements
-//op = 0; //PID controller output
 unsigned long lastOTSetTempMillis = 0, curMillis = 0;
 
 long lastReconnectMQTTmillis=0;
@@ -106,19 +95,27 @@ void setup_wifi() {
 }
 
 void MQTTpublish_temperature() {
-  Serial.println("t=" + String(CHCurTemp));    
-  String(CHCurTemp).toCharArray(buf, 10);
-  MQTTClient.publish("/home1/OpenTherm/CHCurTemp", buf);  
+  String str_CHCurTemp=String(CHCurTemp);
+  Serial.print("MQTT OUT:: curt=");
+  Serial.println(str_CHCurTemp);    
+  //String(CHCurTemp).toCharArray(buf, 10);
+  MQTTClient.publish("/home1/OpenTherm/CHCurTemp", str_CHCurTemp.c_str());  
 }
 
 void MQTTcallback(char* topic, byte* payload, uint length) {
-  if(strcmp(topic, "CHSetPoint") != 0) return;
+  Serial.print("MQTT_IN:: ");
+  Serial.println(topic);
+  Serial.println(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint"));
+  
+  if(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint") != 0) return;
   String str = String();    
   for (uint i = 0; i < length; i++) {
     str += (char)payload[i];
   }
-  Serial.println("CHSetPoint=" + str);  
+
+  Serial.println("str CHSetPoint=" + str);  
   CHSetPoint = str.toFloat();
+  Serial.println(CHSetPoint);  
 }
 
 void MQTTReconnect() {  
@@ -131,12 +128,12 @@ void MQTTReconnect() {
   while (!MQTTClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (MQTTClient.connect("ESP8266Client", mqtt_user, mqtt_password)) {
+    if (MQTTClient.connect("ESP32Client", mqtt_user, mqtt_password)) {
       Serial.println("connected");
       // Once connected, publish an announcement...
       MQTTpublish_temperature();
       // ... and resubscribe
-      MQTTClient.subscribe("CHSetPoint");
+      MQTTClient.subscribe("/home1/OpenTherm/Set/#");
     } else {
       Serial.print("failed, rc=");
       Serial.print(MQTTClient.state());
@@ -243,11 +240,6 @@ void setup(void) {
   //btn1.setTapHandler(event_on_btn1);
   btn1.setClickHandler(event_on_btn1);
 
-  ////Init DS18B20 Sensor
-  //sensors.begin();
-  //sensors.requestTemperatures();
-  //sensors.setWaitForConversion(false); //switch to async mode
-  //CHCurTemp, pv_last = sensors.getTempCByIndex(0);
   lastOTSetTempMillis = millis();
 
   //Init OpenTherm Controller
@@ -270,28 +262,20 @@ void loop(void) {
     unsigned long response = OpenThermIf.setBoilerStatus(enableCentralHeating, enableHotWater, enableCooling);
     OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
     if (responseStatus != OpenThermResponseStatus::SUCCESS) {
-      String str="Error: Invalid boiler response ";
+      String str="Error getting status: Invalid boiler response ";
       str = str + String(response, HEX);
       Serial.println(str);
       MQTTClient.publish("/home1/OpenTherm/ERR", str.c_str());
     }   
     
-    /*CHCurTemp = sensors.getTempCByIndex(0);
-    dt = (new_ts - lastOTSetTempMillis) / 1000.0;
-    lastOTSetTempMillis = new_ts;
-    if (responseStatus == OpenThermResponseStatus::SUCCESS) {
-      op = pid(CHSetPoint, CHCurTemp, pv_last, ierr, dt);
-      //Set Boiler Temperature
-      OpenThermIf.setBoilerTemperature(op);
-    }
-    pv_last = CHCurTemp;
-    
-    sensors.requestTemperatures(); //async temperature request
-    */
-
     lastOTSetTempMillis = curMillis;
     OpenThermIf.setBoilerTemperature(CHSetPoint);
+
+    CHCurTemp = OpenThermIf.getBoilerTemperature();
+    //responseStatus = OpenThermIf.getLastResponseStatus();
+    //if (responseStatus != OpenThermResponseStatus::SUCCESS)
     MQTTpublish_temperature();
+    
   }
   
   //MQTT Loop
