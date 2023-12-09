@@ -82,7 +82,7 @@ void setup_wifi() {
   Serial.println(ssid);
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid, pass);
 
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
     Serial.println("Connection Failed! Rebooting...");
@@ -131,7 +131,7 @@ void MQTTReconnect() {
   while (!MQTTClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (MQTTClient.connect("ESP32Client", mqtt_user, mqtt_password)) {
+    if (MQTTClient.connect("ESP32Client", mqtt_user, mqtt_pass)) {
       Serial.println("connected");
       // Once connected, publish an announcement...
       MQTTpublish_temperature();
@@ -241,6 +241,10 @@ void setup(void) {
   
   Time.setDSTauto(&dst);
   Time.begin();
+  Serial.println("Local time: ");
+  Serial.println(Time.timeString()); 	//виводимо / outputting
+  Serial.println(Time.dateString());
+  Serial.println();
 
   btn1.begin(BUTTON_1);
   //btn1.setTapHandler(event_on_btn1);
@@ -259,6 +263,7 @@ void setup(void) {
 void loop(void) { 
   ArduinoOTA.handle();
   Time.tick();
+  //if (Time.ms() == 0) {// секунда почалась / second started
 
   curMillis = millis();
   if (curMillis - lastOTSetTempMillis > 1000) {   
