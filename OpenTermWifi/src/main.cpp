@@ -78,8 +78,9 @@ void setup_wifi() {
   delay(10);
   //Connect to a WiFi network
   Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.print("WiFi connecting to ");
+  Serial.print(ssid);
+  Serial.print(" .... ");
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
@@ -90,8 +91,7 @@ void setup_wifi() {
     ESP.restart();
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
+  Serial.println("OK: connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 
@@ -241,10 +241,11 @@ void setup(void) {
   
   Time.setDSTauto(&dst);
   Time.begin();
-  Serial.println("Local time: ");
-  Serial.println(Time.timeString()); 	//виводимо / outputting
-  Serial.println(Time.dateString());
-  Serial.println();
+  //Time.tick(); //works only in loop
+  //Serial.println("Local time: ");
+  //Serial.println(Time.timeString()); 	//виводимо / outputting
+  //Serial.println(Time.dateString());
+  //Serial.println();
 
   btn1.begin(BUTTON_1);
   //btn1.setTapHandler(event_on_btn1);
@@ -274,7 +275,7 @@ void loop(void) {
     unsigned long response = OpenThermIf.setBoilerStatus(enableCentralHeating, enableHotWater, enableCooling);
     OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
     if (responseStatus != OpenThermResponseStatus::SUCCESS) {
-      String str="Error getting status: Invalid boiler response ";
+      String str="OT:Error getting status: Invalid boiler response ";
       str = str + String(response, HEX);
       Serial.println(str);
       MQTTClient.publish("/home1/OpenTherm/ERR", str.c_str());
@@ -288,6 +289,10 @@ void loop(void) {
     //if (responseStatus != OpenThermResponseStatus::SUCCESS)
     MQTTpublish_temperature();
     
+    //Serial.println("Local time: ");
+    //Serial.println(Time.timeString()); 	//виводимо / outputting
+    //Serial.println(Time.dateString());
+    //Serial.println();
   }
   
   //MQTT Loop
