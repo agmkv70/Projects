@@ -4,7 +4,12 @@
 #include <ArduinoOTA.h>
 //#include <ESP8266WiFi.h> //gone to esp32
 #include <PubSubClient.h>
+#include "NIK_ONLY_WifiBlynk.h" //wifi and mqtt credentials
 #include <OpenTherm.h>
+
+#include <NTPtime.h>
+NTPtime Time(2); //UA in +2 time zone
+DSTime dst(3, 0, 7, 3, 10, 0, 7, 4); //https://en.wikipedia.org/wiki/Eastern_European_Summer_Time
 
 //TTGO:
 #include <TFT_eSPI.h> 
@@ -40,16 +45,13 @@ Button2 btn1(BUTTON_1);
 int btnCick = false;
 //TTGO end
 
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 0;
+const int   daylightOffset_sec = 3600;
+
 //OpenTherm input and output wires connected to 4 and 5 pins on the OpenTherm Shield
 const int inPin = 12;
 const int outPin = 13;
-
-const char* ssid = "WLNA";
-const char* password = "HKP35241";
-const char* mqtt_server = "192.168.0.130";
-const int   mqtt_port = 1883;
-const char* mqtt_user = "";
-const char* mqtt_password = "";
 
 OpenTherm OpenThermIf(inPin, outPin);
 WiFiClient espClient;
@@ -92,6 +94,7 @@ void setup_wifi() {
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+
 }
 
 void MQTTpublish_temperature() {
@@ -236,6 +239,9 @@ void setup(void) {
   setup_ArduinoOTA();
   setup_TFT();
   
+  Time.setDSTauto(&dst);
+  Time.begin();
+
   btn1.begin(BUTTON_1);
   //btn1.setTapHandler(event_on_btn1);
   btn1.setClickHandler(event_on_btn1);
@@ -252,6 +258,7 @@ void setup(void) {
 
 void loop(void) { 
   ArduinoOTA.handle();
+  Time.tick();
 
   curMillis = millis();
   if (curMillis - lastOTSetTempMillis > 1000) {   
