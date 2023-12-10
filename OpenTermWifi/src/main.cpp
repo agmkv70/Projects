@@ -102,6 +102,8 @@ class EEPROMStorageClass{
   };
 };
 EEPROMStorageClass EEPROMStorage;
+float CHCurTemp = 0; //current temperature
+float curDHWFlowRate = 0;
 
 //OpenTherm input and output wires connected to 4 and 5 pins on the OpenTherm Shield
 const int inPin = 12;
@@ -112,7 +114,6 @@ WiFiClient espClient;
 PubSubClient MQTTClient(espClient);
 char buf[10];
 
-float CHCurTemp = 0; //current temperature
 unsigned long lastOTSetTempMillis = 0, curMillis = 0;
 long lastReconnectMQTTmillis=0;
 
@@ -147,56 +148,6 @@ void setup_wifi() {
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 
-}
-
-void MQTTpublish_temperature() {
-  String str_CHCurTemp=String(CHCurTemp);
-  Serial.print("MQTT OUT:: curt=");
-  Serial.println(str_CHCurTemp);    
-  //String(CHCurTemp).toCharArray(buf, 10);
-  MQTTClient.publish("/home1/OpenTherm/CHCurTemp", str_CHCurTemp.c_str());  
-}
-
-void MQTTcallback(char* topic, byte* payload, uint length) {
-  Serial.print("MQTT_IN:: ");
-  Serial.println(topic);
-  Serial.println(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint"));
-  
-  if(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint") != 0) return;
-  String str = String();    
-  for (uint i = 0; i < length; i++) {
-    str += (char)payload[i];
-  }
-
-  Serial.println("str CHSetPoint=" + str);  
-  EEPROMStorage.CHSetPoint = str.toFloat();
-  Serial.println(EEPROMStorage.CHSetPoint);  
-}
-
-void MQTTReconnect() {  
-  long curMillis = millis();
-  if( curMillis - lastReconnectMQTTmillis < 5000 ){ 
-    return; //try reconnect not too often - once in 5 sec.
-  }
-  lastReconnectMQTTmillis = curMillis;
-
-  while (!MQTTClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (MQTTClient.connect("ESP32Client", mqtt_user, mqtt_pass)) {
-      Serial.println("connected");
-      // Once connected, publish an announcement...
-      MQTTpublish_temperature();
-      // ... and resubscribe
-      MQTTClient.subscribe("/home1/OpenTherm/Set/#");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(MQTTClient.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      //delay(5000);
-    }    
-  }
 }
 
 void setup_ArduinoOTA(){
@@ -285,9 +236,89 @@ void setup_TFT(){
   tft.print("WORKING...");
 }
 
+void MQTTReconnect() {  
+  long curMillis = millis();
+  if( curMillis - lastReconnectMQTTmillis < 5000 ){ 
+    return; //try reconnect not too often - once in 5 sec.
+  }
+  lastReconnectMQTTmillis = curMillis;
+
+  while (!MQTTClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (MQTTClient.connect("ESP32Client", mqtt_user, mqtt_pass)) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      //MQTTpublish_CurTemp();
+      // ... and resubscribe
+      MQTTClient.subscribe("/home1/OpenTherm/Set/#");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(MQTTClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      //delay(5000);
+    }    
+  }
+}
+
+void MQTTcallback(char* topic, byte* payload, uint length) {
+  Serial.print("MQTT_IN:: ");
+  Serial.println(topic);
+  Serial.println(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint"));
+  
+  String str = String();    
+  for (uint i = 0; i < length; i++) {
+    str += (char)payload[i];
+  }
+  
+  if(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint") == 0){
+    EEPROMStorage.CHSetPoint = str.toFloat();
+    Serial.print(" CHSetPoint = ");  
+    Serial.println(EEPROMStorage.CHSetPoint);
+
+  }else if(strcmp(topic, "/home1/OpenTherm/Set/CHEnable")== 0){
+    EEPROMStorage.CHEnable = (byte)str.toInt();
+    Serial.print(" CHEnable = ");  
+    Serial.println(EEPROMStorage.CHEnable);
+
+  }else if(strcmp(topic, "/home1/OpenTherm/Set/DHWt") == 0){
+    EEPROMStorage.DHWt = str.toFloat();
+    Serial.print(" DHWt = ");  
+    Serial.println(EEPROMStorage.DHWt);
+
+  }else if(strcmp(topic, "/home1/OpenTherm/Set/DHWEnable")== 0){
+    EEPROMStorage.DHWEnable = (byte)str.toInt();
+    Serial.print(" DHWEnable = ");  
+    Serial.println(EEPROMStorage.DHWEnable);
+
+  }else{
+    Serial.println("ERR: unknown MQTT topic!");  
+    return; //jump off without val storage
+  }
+
+  EEPROMStorage.storeAll();
+}
+
+void MQTTpublish_CHCurTemp() {
+  String str_CHCurTemp=String(CHCurTemp);
+  Serial.print("MQTT OUT:: curt=");
+  Serial.println(str_CHCurTemp);    
+  //String(CHCurTemp).toCharArray(buf, 10);
+  MQTTClient.publish("/home1/OpenTherm/CHCurTemp", str_CHCurTemp.c_str());  
+}
+
+void MQTTpublish_DHWFlowRate() {
+  String str=String(curDHWFlowRate);
+  Serial.print("MQTT OUT:: DHWFlowRate=");
+  Serial.println(str);    
+  MQTTClient.publish("/home1/OpenTherm/DHWFlowRate", str.c_str());  
+}
+
 void setup(void) {
-  EEPROMStorage.restoreAll();
   Serial.begin(115200);
+
+  EEPROMStorage.restoreAll();
   setup_wifi();
   setup_ArduinoOTA();
   setup_TFT();
@@ -296,7 +327,7 @@ void setup(void) {
   Time.begin();
   //Time.tick(); //works only in loop
   //Serial.println("Local time: ");
-  //Serial.println(Time.timeString()); 	//виводимо / outputting
+  //Serial.println(Time.timeString());
   //Serial.println(Time.dateString());
   //Serial.println();
 
@@ -321,26 +352,31 @@ void loop(void) {
 
   curMillis = millis();
   if (curMillis - lastOTSetTempMillis > 1000) {   
+    lastOTSetTempMillis = curMillis;
+    
     //Set/Get Boiler Status
-    bool enableCentralHeating = true;
-    bool enableHotWater = true;
-    bool enableCooling = false;
-    unsigned long response = OpenThermIf.setBoilerStatus(enableCentralHeating, enableHotWater, enableCooling);
+    unsigned long response = OpenThermIf.setBoilerStatus(EEPROMStorage.CHEnable, EEPROMStorage.DHWEnable);
     OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
     if (responseStatus != OpenThermResponseStatus::SUCCESS) {
       String str="OT:Error getting status: Invalid boiler response ";
       str = str + String(response, HEX);
       Serial.println(str);
       MQTTClient.publish("/home1/OpenTherm/ERR", str.c_str());
-    }   
-    
-    lastOTSetTempMillis = curMillis;
-    OpenThermIf.setBoilerTemperature(EEPROMStorage.CHSetPoint);
 
-    CHCurTemp = OpenThermIf.getBoilerTemperature();
-    //responseStatus = OpenThermIf.getLastResponseStatus();
-    //if (responseStatus != OpenThermResponseStatus::SUCCESS)
-    MQTTpublish_temperature();
+    }else{ //SUCCESS
+      OpenThermIf.setBoilerTemperature(EEPROMStorage.CHSetPoint);
+      
+      OpenThermIf.setDHWSetpoint(EEPROMStorage.DHWt);
+
+      CHCurTemp = OpenThermIf.getBoilerTemperature();
+      //responseStatus = OpenThermIf.getLastResponseStatus();
+      //if (responseStatus != OpenThermResponseStatus::SUCCESS)
+      MQTTpublish_CHCurTemp();
+
+      curDHWFlowRate = OpenThermIf.getDHWFlowRate();
+      MQTTpublish_DHWFlowRate();
+
+    }
     
     //Serial.println("Local time: ");
     //Serial.println(Time.timeString()); 	//виводимо / outputting
