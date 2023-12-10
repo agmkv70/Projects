@@ -7,61 +7,113 @@
 #include "NIK_ONLY_WifiBlynk.h" //wifi and mqtt credentials
 #include <OpenTherm.h>
 
-#include <NTPtime.h>
-NTPtime Time(2); //UA in +2 time zone
-DSTime dst(3, 0, 7, 3, 10, 0, 7, 4); //https://en.wikipedia.org/wiki/Eastern_European_Summer_Time
-
-//TTGO:
+/////////////////////TTGO start:
 #include <TFT_eSPI.h> 
 //!uncomment line in: TFT_eSPI/User_Setup_Select.h
 //  #include <User_Setups/Setup25_TTGO_T_Display.h>    // Setup file for ESP32 and TTGO T-Display ST7789V SPI bus TFT
 #include <Button2.h>
-
 #ifndef TFT_DISPOFF
-#define TFT_DISPOFF 0x28
+  #define TFT_DISPOFF 0x28
 #endif
 #ifndef TFT_SLPIN
-#define TFT_SLPIN   0x10
+  #define TFT_SLPIN   0x10
 #endif
-//#define TFT_MOSI            19
-//#define TFT_SCLK            18
-//#define TFT_CS              5
-//#define TFT_DC              16
-//#define TFT_RST             23
 //#define TFT_BL              4  // Display backlight control pin
-
 //#define TFT_WIDTH  135 //X
 //#define TFT_HEIGHT 240 //Y
-
 #define ADC_EN          14
 #define ADC_PIN         34
 #define BUTTON_1        35 //right
 #define BUTTON_2        0  //left
-
 TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
-
 Button2 btn1(BUTTON_1);
 //Button2 btn2(BUTTON_2);
 int btnCick = false;
-//TTGO end
+/////////////////////:TTGO end
 
+#include <NTPtime.h>
+NTPtime Time(2); //UA in +2 time zone
+DSTime dst(3, 0, 7, 3, 10, 0, 7, 4); //https://en.wikipedia.org/wiki/Eastern_European_Summer_Time
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
 const int   daylightOffset_sec = 3600;
 
+#include <EEPROM.h>
+template <class T> int EEPROM_WriteAnything_seq(int &ee, const T& value) //write any type to address ee and return numbytes
+{
+   const byte* p = (const byte*)(const void*)&value;
+   unsigned int i;
+   for (i = 0; i < sizeof(value); i++)
+   {   //EEPROM.update(ee++, *p++);
+      byte val = EEPROM.read(ee);
+      if(val!=*p)
+        EEPROM.write(ee,*p);
+      ee++;
+      p++;
+   }
+   return i;
+}
+template <class T> int EEPROM_ReadAnything_seq(int &ee, T& value) //read any type from address ee and return numbytes
+{
+   byte* p = (byte*)(void*)&value;
+   unsigned int i;
+   for (i = 0; i < sizeof(value); i++)
+       *p++ = EEPROM.read(ee++);
+   return i;
+}
+class EEPROMStorageClass{
+  public:
+  byte CHEnable;
+  byte DHWEnable;
+  float CHSetPoint;
+  float DHWt;
+  byte CHMode;
+  
+  EEPROMStorageClass(){
+    CHEnable=0;
+    DHWEnable=0;
+    CHSetPoint=24;
+    DHWt=53;
+    CHMode=0;
+  }
+  int uid=1; //unique key to sign 
+  int _offset;
+  void storeAll(){
+    _offset=0;
+    EEPROM_WriteAnything_seq(_offset,uid);
+    EEPROM_WriteAnything_seq(_offset,CHEnable);
+    EEPROM_WriteAnything_seq(_offset,DHWEnable);
+    EEPROM_WriteAnything_seq(_offset,CHSetPoint);
+    EEPROM_WriteAnything_seq(_offset,DHWt);
+    EEPROM_WriteAnything_seq(_offset,CHMode);
+  };
+  void restoreAll(){
+    int read_uid;
+    EEPROM_ReadAnything_seq(_offset,read_uid);
+    if(read_uid != uid){ //never wrote valid values into eeprom
+      storeAll(); //write defaults
+      return; 
+    }
+    EEPROM_ReadAnything_seq(_offset,CHEnable);
+    EEPROM_ReadAnything_seq(_offset,DHWEnable);
+    EEPROM_ReadAnything_seq(_offset,CHSetPoint);
+    EEPROM_ReadAnything_seq(_offset,DHWt);
+    EEPROM_ReadAnything_seq(_offset,CHMode);
+  };
+};
+EEPROMStorageClass EEPROMStorage;
+
 //OpenTherm input and output wires connected to 4 and 5 pins on the OpenTherm Shield
 const int inPin = 12;
 const int outPin = 13;
-
 OpenTherm OpenThermIf(inPin, outPin);
+
 WiFiClient espClient;
 PubSubClient MQTTClient(espClient);
 char buf[10];
 
-float CHSetPoint = 24; //set point
 float CHCurTemp = 0; //current temperature
 unsigned long lastOTSetTempMillis = 0, curMillis = 0;
-
 long lastReconnectMQTTmillis=0;
 
 void IRAM_ATTR handleInterrupt() { //was ICACHE_RAM_ATTR
@@ -117,8 +169,8 @@ void MQTTcallback(char* topic, byte* payload, uint length) {
   }
 
   Serial.println("str CHSetPoint=" + str);  
-  CHSetPoint = str.toFloat();
-  Serial.println(CHSetPoint);  
+  EEPROMStorage.CHSetPoint = str.toFloat();
+  Serial.println(EEPROMStorage.CHSetPoint);  
 }
 
 void MQTTReconnect() {  
@@ -233,7 +285,8 @@ void setup_TFT(){
   tft.print("WORKING...");
 }
 
-void setup(void) {  
+void setup(void) {
+  EEPROMStorage.restoreAll();
   Serial.begin(115200);
   setup_wifi();
   setup_ArduinoOTA();
@@ -282,7 +335,7 @@ void loop(void) {
     }   
     
     lastOTSetTempMillis = curMillis;
-    OpenThermIf.setBoilerTemperature(CHSetPoint);
+    OpenThermIf.setBoilerTemperature(EEPROMStorage.CHSetPoint);
 
     CHCurTemp = OpenThermIf.getBoilerTemperature();
     //responseStatus = OpenThermIf.getLastResponseStatus();
