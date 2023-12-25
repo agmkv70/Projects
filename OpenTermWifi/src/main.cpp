@@ -252,6 +252,7 @@ void MQTTReconnect() {
       //MQTTpublish_CurTemp();
       // ... and resubscribe
       MQTTClient.subscribe("/home1/OpenTherm/Set/#");
+      MQTTClient.subscribe("/home1/OpenTherm/Read/#");
     } else {
       Serial.print("failed, rc=");
       Serial.print(MQTTClient.state());
@@ -262,13 +263,13 @@ void MQTTReconnect() {
   }
 }
 
-void MQTTcallback(char* topic, byte* payload, uint length) {
+void MQTTcallback(char* topic, byte* payload, uint length){
   Serial.print("MQTT_IN:: ");
   Serial.println(topic);
   Serial.println(strcmp(topic, "/home1/OpenTherm/Set/CHSetPoint"));
   
   String str = String();    
-  for (uint i = 0; i < length; i++) {
+  for (uint i = 0; i < length; i++){
     str += (char)payload[i];
   }
   
@@ -292,6 +293,58 @@ void MQTTcallback(char* topic, byte* payload, uint length) {
     Serial.print(" DHWEnable = ");  
     Serial.println(EEPROMStorage.DHWEnable);
 
+  }else if(strstr(topic, "/home1/OpenTherm/Read/HEX/") != NULL){
+    char strid[4];
+    uint i=0;
+    for(; i<3 && topic[26+i]!=0; i++){
+      strid[i]=topic[26+i];
+      strid[i+1]=0;
+    }
+
+    Serial.print(" Read/HEX/");  
+    Serial.print(atoi(strid));
+    Serial.print(" data=");
+    Serial.print(str);
+    
+    uint res = OpenThermIf.getAny(atoi(strid),strtol(str.c_str(), 0, 16));
+
+    char ret_topic[101];
+    for(i=0; i<100 && topic[i]!=0; i++){
+      ret_topic[i]=topic[i];
+      ret_topic[i+1]=0;
+    }
+    ret_topic[20]='R';
+    
+    OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
+    if (responseStatus == OpenThermResponseStatus::SUCCESS){
+      Serial.print(" result= ");
+      Serial.print("0x");
+      Serial.print(res < 16 ? "0" : "");
+      Serial.println(res, HEX);
+      
+      char myHex[10] = "";
+      ltoa(res,myHex,16);
+      MQTTClient.publish(ret_topic, myHex);
+
+    }else{ //error
+      Serial.print(" ERR= ");
+      Serial.println(responseStatus);
+
+      switch(responseStatus){
+        case OpenThermResponseStatus::NONE :
+          MQTTClient.publish(ret_topic, "ERROR_NONE");
+        break;
+        case OpenThermResponseStatus::INVALID :
+          MQTTClient.publish(ret_topic, "ERROR_INVALID");
+        break;
+        case OpenThermResponseStatus::TIMEOUT :
+          MQTTClient.publish(ret_topic, "ERROR_TIMEOUT");
+        break;
+        default:
+          MQTTClient.publish(ret_topic, "ERROR_?");
+      }
+      
+    }
   }else{
     Serial.println("ERR: unknown MQTT topic!");  
     return; //jump off without val storage
@@ -366,7 +419,7 @@ void loop(void) {
     }else{ //SUCCESS
       OpenThermIf.setBoilerTemperature(EEPROMStorage.CHSetPoint);
       
-      OpenThermIf.setDHWSetpoint(EEPROMStorage.DHWt);
+      OpenThermIf.setDHWSetpoint(EEPROMStorage.CHEnable==0 ? 0 : EEPROMStorage.DHWt);
 
       CHCurTemp = OpenThermIf.getBoilerTemperature();
       //responseStatus = OpenThermIf.getLastResponseStatus();
