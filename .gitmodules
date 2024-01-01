@@ -2,3 +2,6 @@
 	path = ESP-CAM/lib/esp32-camera
 	url = https://github.com/espressif/esp32-camera.git
 	branch = master
+[submodule "CYD320x480/boards"]
+	path = CYD320x480/boards
+	url = https://github.com/rzeldent/platformio-espressif32-sunton.git
