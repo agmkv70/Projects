@@ -238,7 +238,7 @@ void setup_TFT(){
 
 void MQTTReconnect() {  
   long curMillis = millis();
-  if( curMillis - lastReconnectMQTTmillis < 5000 ){ 
+  if( curMillis - lastReconnectMQTTmillis < 5000 && lastReconnectMQTTmillis!=0){ 
     return; //try reconnect not too often - once in 5 sec.
   }
   lastReconnectMQTTmillis = curMillis;
@@ -293,7 +293,11 @@ void MQTTcallback(char* topic, byte* payload, uint length){
     Serial.print(" DHWEnable = ");  
     Serial.println(EEPROMStorage.DHWEnable);
 
-  }else if(strstr(topic, "/home1/OpenTherm/Read/HEX/") != NULL){
+  }else if( strstr(topic, "/home1/OpenTherm/Read/HEX/") != NULL
+          ||strstr(topic, "/home1/OpenTherm/Read/DEC/") != NULL){
+    bool hex=(strstr(topic, "/home1/OpenTherm/Read/HEX/") != NULL);
+    bool dec=(strstr(topic, "/home1/OpenTherm/Read/DEC/") != NULL);
+    
     char strid[4];
     uint i=0;
     for(; i<3 && topic[26+i]!=0; i++){
@@ -301,7 +305,7 @@ void MQTTcallback(char* topic, byte* payload, uint length){
       strid[i+1]=0;
     }
 
-    Serial.print(" Read/HEX/");  
+    Serial.print(" Read/___/");  
     Serial.print(atoi(strid));
     Serial.print(" data=");
     Serial.print(str);
@@ -317,14 +321,25 @@ void MQTTcallback(char* topic, byte* payload, uint length){
     
     OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
     if (responseStatus == OpenThermResponseStatus::SUCCESS){
-      Serial.print(" result= ");
-      Serial.print("0x");
-      Serial.print(res < 16 ? "0" : "");
-      Serial.println(res, HEX);
-      
-      char myHex[10] = "";
-      ltoa(res,myHex,16);
-      MQTTClient.publish(ret_topic, myHex);
+      if(hex){
+        Serial.print(" result= ");
+        Serial.print("0x");
+        Serial.print(res < 16 ? "0" : "");
+        Serial.println(res, HEX);
+        
+        char myHex[10] = "";
+        ltoa(res,myHex,16);
+        MQTTClient.publish(ret_topic, myHex);
+
+      } else if(dec){
+        Serial.print(" result= ");
+        float fres=OpenThermIf.getFloat(res);
+        Serial.println(fres);
+        
+        String mystrf;
+        mystrf = String(fres);
+        MQTTClient.publish(ret_topic, mystrf.c_str());
+      }
 
     }else{ //error
       Serial.print(" ERR= ");
@@ -343,8 +358,75 @@ void MQTTcallback(char* topic, byte* payload, uint length){
         default:
           MQTTClient.publish(ret_topic, "ERROR_?");
       }
-      
     }
+    
+  }if( strstr(topic, "/home1/OpenTherm/Write/HEX/") != NULL
+          ||strstr(topic, "/home1/OpenTherm/Write/DEC/") != NULL){
+    bool hex=(strstr(topic, "/home1/OpenTherm/Write/HEX/") != NULL);
+    bool dec=(strstr(topic, "/home1/OpenTherm/Write/DEC/") != NULL);
+    
+    char strid[4];
+    uint i=0;
+    for(; i<3 && topic[27+i]!=0; i++){
+      strid[i]=topic[27+i];
+      strid[i+1]=0;
+    }
+
+    Serial.print(" Write/___/");  
+    Serial.print(atoi(strid));
+    Serial.print(" data=");
+    Serial.print(str);
+    
+    uint res = OpenThermIf.writeAny(atoi(strid),strtof(str.c_str(),0));
+
+    char ret_topic[101];
+    for(i=0; i<100 && topic[i]!=0; i++){
+      ret_topic[i]=topic[i];
+      ret_topic[i+1]=0;
+    }
+    ret_topic[21]='W';
+    
+    OpenThermResponseStatus responseStatus = OpenThermIf.getLastResponseStatus();
+    if (responseStatus == OpenThermResponseStatus::SUCCESS){
+      if(hex){
+        Serial.print(" result= ");
+        Serial.print("0x");
+        Serial.print(res < 16 ? "0" : "");
+        Serial.println(res, HEX);
+        
+        char myHex[10] = "";
+        ltoa(res,myHex,16);
+        MQTTClient.publish(ret_topic, myHex);
+
+      } else if(dec){
+        Serial.print(" result= ");
+        float fres=OpenThermIf.getFloat(res);
+        Serial.println(fres);
+        
+        String mystrf;
+        mystrf = String(fres);
+        MQTTClient.publish(ret_topic, mystrf.c_str());
+      }
+
+    }else{ //error
+      Serial.print(" ERR= ");
+      Serial.println(responseStatus);
+
+      switch(responseStatus){
+        case OpenThermResponseStatus::NONE :
+          MQTTClient.publish(ret_topic, "ERROR_NONE");
+        break;
+        case OpenThermResponseStatus::INVALID :
+          MQTTClient.publish(ret_topic, "ERROR_INVALID");
+        break;
+        case OpenThermResponseStatus::TIMEOUT :
+          MQTTClient.publish(ret_topic, "ERROR_TIMEOUT");
+        break;
+        default:
+          MQTTClient.publish(ret_topic, "ERROR_?");
+      }
+    }
+    
   }else{
     Serial.println("ERR: unknown MQTT topic!");  
     return; //jump off without val storage
@@ -401,7 +483,11 @@ void setup(void) {
 void loop(void) { 
   ArduinoOTA.handle();
   Time.tick();
-  //if (Time.ms() == 0) {// секунда почалась / second started
+  if (!MQTTClient.connected()) {
+    MQTTReconnect();
+  }
+  MQTTClient.loop();
+  btn1.loop();
 
   curMillis = millis();
   if (curMillis - lastOTSetTempMillis > 1000) {   
@@ -436,12 +522,5 @@ void loop(void) {
     //Serial.println(Time.dateString());
     //Serial.println();
   }
-  
-  //MQTT Loop
-  if (!MQTTClient.connected()) {
-    MQTTReconnect();
-  }
-  MQTTClient.loop();
-  
-  btn1.loop();
+    
 }
