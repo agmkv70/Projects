@@ -6,5 +6,3 @@
 !**.vscode/settings.json
 .clang_complete
 .gcc-flags.json
-ESP32_ThermalCamera
-ESP32_ThermalCamera
