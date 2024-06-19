@@ -93,6 +93,8 @@ void setup(){
   
   ui_init();
 
+  //#include "user_interface.h"
+  wifi_set_sleep_type(LIGHT_SLEEP_T);
   Serial.println( "Setup done" );
 }
 

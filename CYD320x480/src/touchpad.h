@@ -249,7 +249,7 @@ void GT911_Scan(void){
       {
         touched = 0;
         GT911_WR_Reg(GT911_READ_XY_REG, (uint8_t *)&Clearbuf, 1);
-        Serial.printf("Dev_Now.TouchCount > 5\r\n");
+        //Serial.printf("Dev_Now.TouchCount > 5\r\n");
         return ;
       }
       GT911_RD_Reg(GT911_READ_XY_REG + 1, &buf[1], Dev_Now.TouchCount * 8);
@@ -356,7 +356,7 @@ void GT911_Init_Touchpad() {
  // pinMode(IIC_INT, INPUT);
 
   GT911_RD_Reg(0X8140, (uint8_t *)&buf, 4);
-  Serial.printf("TouchPad_ID:%d,%d,%d\r\n", buf[0], buf[1], buf[2], buf[3]);
+  //Serial.printf("TouchPad_ID:%d,%d,%d\r\n", buf[0], buf[1], buf[2], buf[3]);
   buf[0] = 0x02;
 
   GT911_WR_Reg(GT_CTRL_REG, buf, 1);
