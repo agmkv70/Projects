@@ -14,6 +14,7 @@ const int MonitorAPin = 3;
 static volatile unsigned char currentAdcChannel;
 
 float voltageV=0, voltageCoef=0.01550753; // divider-4.73(100k::(20k+6.8k)) maxV-15.6
+float AverageV=0; //calculated as sliding average (of 10)
 float currentA=0, currentCoef=-(0.5f); //-4=0; -45=+20.45A
 const int curOffsetMidpoint=512-4;
 
@@ -94,7 +95,15 @@ void MainCycle_StartEvent(){
     SumDeltaWs = 0;
     BAT_EnergyPercent = BAT_MaxEnergyWH==0 ? 0 : (BAT_EnergyWH / BAT_MaxEnergyWH * 100.0f);
 
-    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(voltageV,2));
+    //calculate average V:
+    VArSumTotal = 0;
+    for(byte ii=0; ii<VArNumReadings; ii++){
+      VArSumTotal += VArReadings[ii];
+    }
+    AverageV = VArSumTotal / VArNumReadings;
+
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(voltageV,2));
+    addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(AverageV,2)); 
     addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterA,fround(currentA,2));
     addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_CurPowerW,fround(BAT_CurPowerW,0));
     addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_EnergyPercent,fround(BAT_EnergyPercent,1));
@@ -270,23 +279,34 @@ ISR(ADC_vect){ // Interrupt service routine for ADC conversion complete
   
   switch(currentAdcChannel){ 
     case MonitorVPin:
-      voltageV = (float)adcVal*voltageCoef;
-
       currentAdcChannel = MonitorAPin;
+
+      voltageV = (float)adcVal*voltageCoef; //momentary value V
+
+      //sliding average V:
+      //VArSumTotal = VArSumTotal - VArReadings[VArIndex] + voltageV; 
+      VArReadings[VArIndex] = voltageV; 
+      VArIndex++;
+      if (VArIndex >= VArNumReadings){             
+        VArIndex = 0;                           
+      }
+      //AverageV = VArSumTotal / VArNumReadings; 
+
     break;
     case MonitorAPin:
+      currentAdcChannel = MonitorVPin;
+
       int curVal = adcVal-curOffsetMidpoint;
       if(-1<=curVal && curVal<=1){ //cut off noise
         curVal=0;
       }
       currentA = (float)(curVal)*currentCoef;
       float DeltaWs = voltageV*currentA*deltaTms/1000.0f;
-      if(DeltaWs<0.0f){
-        DeltaWs *= 1.065f; //13.3/12.4 - about 7% loss (or convertion to ah)
+      if(DeltaWs>0.0f){ //when charging - there is loss - cause we measure IN but calibrate by OUT energy, which we can get!
+        DeltaWs /= 1.065f; //13.3/12.4 - about 7% loss on charging - energy stored is accounted as energy you can get out of it!
       }
       SumDeltaWs += DeltaWs;
 
-      currentAdcChannel = MonitorVPin;
     break;
   }
   

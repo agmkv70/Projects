@@ -11,8 +11,8 @@ SimpleTimer mel_timer;
 SimpleTimer timer2;
 
 #define PIN_Buzzer 7
-#define PIN_LEDOnShield1 11
-#define PIN_LEDOnShield2 12
+#define PIN_LEDOnShield1 11 //yellow ?
+#define PIN_LEDOnShield2 12 //red ?
 #define PIN_BUTTON 2
 #define PIN_RELAY1off 8
 #define PIN_RELAY2on 9
@@ -64,7 +64,7 @@ long startTime;
 #define DischargeAlarmReset 12.6 //12.7
 
 #define EnableAutoChargeV 13.5 //auto can be turned on
-#define OffAutoChargeV 13.7 //turn off charging
+#define OffAutoChargeV 13.8 //turn off charging
 
 #define OverchargeAlarmV 14.2  //14.4
 #define OverchargeAlarmReset 14.0  //14.2
@@ -78,7 +78,7 @@ long startBalanceTime=0;
 enum StatesMelodyPlay {st_off,st_melodyPlay,st_forceStopped}; //forceStopped=Silenced (LED continues flashing)
 StatesMelodyPlay state_discharged=st_off; 
 StatesMelodyPlay state_charged=st_off; 
-int state_AutoCharging=0; // 0/1 - starts when charge button pressed, ends via button or high voltage - priority state (when =1)
+int state_AutoCharging=0; // 0/1/-1(fast blinking charged) - starts when charge button pressed, ends via button or high voltage - priority state (when =1)
 
 void repeatMelody();
 void timer_call_playmelody() { //////////////////
@@ -177,7 +177,7 @@ void stopMelody(){
 
 void onButtonPressed() { ////////////////////////
   
-  if(state_AutoCharging==1){ //turn off charging
+  if(state_AutoCharging!=0){ //turn off charging or fast blinking (charged)
     state_AutoCharging=0;
      //off autocharging:
     digitalWrite(PIN_RELAY1off,HIGH);
@@ -211,7 +211,7 @@ void onButtonPressed() { ////////////////////////
     delay(20);
     noTone(PIN_Buzzer);
     digitalWrite(PIN_Buzzer,HIGH);
-  }else if(state_AutoCharging==0 && voltage < EnableAutoChargeV){ //turn on charging
+  }else if(state_AutoCharging<=0 && voltage < EnableAutoChargeV){ //turn on charging
     state_AutoCharging=1;
     //on autocharging:
     digitalWrite(PIN_RELAY2on,HIGH);
@@ -225,8 +225,8 @@ void onButtonPressed() { ////////////////////////
 
 void OnVoltageMeasured(){ ///////////////////////
 
-  if(state_AutoCharging==1 && OffAutoChargeV < voltage){ //turn off auto charging
-    state_AutoCharging=0;
+  if(state_AutoCharging==1 && voltage > OffAutoChargeV){ //CHARGED! -> turn off auto charging
+    state_AutoCharging=-1;
      //off autocharging:
     digitalWrite(PIN_RELAY1off,HIGH);
     delay(4);
@@ -242,7 +242,7 @@ void OnVoltageMeasured(){ ///////////////////////
       state_discharged=st_melodyPlay;
     }
   }
-  if(voltage >= DischargeAlarmReset && state_discharged != st_off){ //low v melody turn off
+  if(voltage >= DischargeAlarmReset && state_discharged != st_off){ //low voltage melody turn off
     state_discharged=st_off;
     stopMelody();
     LEDFlashMode(0);
