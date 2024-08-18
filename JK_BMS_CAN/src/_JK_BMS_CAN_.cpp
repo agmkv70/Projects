@@ -120,7 +120,8 @@
 //#define MAX_CURRENT_MODIFICATION_LOWER_SOC_THRESHOLD_PERCENT        80  // Start SOC for linear reducing maximum current. Default 80
 //#define MAX_CURRENT_MODIFICATION_MIN_CURRENT_TENTHS_OF_AMPERE       50  // Value of current at 100 % SOC. Units are 100 mA! Default 50
 #define DEBUG                 // This enables debug output for all files - only for development
-//#define STANDALONE_TEST       // If activated, fixed BMS data is sent to CAN bus and displayed on LCD.
+#define STANDALONE_TEST       // If activated, fixed BMS data is sent to CAN bus and displayed on LCD.
+//#define USE_NO_LCD
 #if defined(STANDALONE_TEST)
 //#define LCD_PAGES_TEST // Additional automatic tests
 #  if defined(LCD_PAGES_TEST)
@@ -173,7 +174,7 @@
 #define NO_CELL_STATISTICS    // Disables generating and display of cell balancing statistics. Saves 1628 bytes program space.
 #if !defined(STANDALONE_TEST)
     #define NO_ANALYTICS          // Disables generating, storing and display of SOC graph for Arduino Serial Plotter. Saves 3856 bytes program space.
-#  endif
+#endif
 //#define USE_NO_LCD            // Disables the code for the LCD display. Saves 25% program space on a Nano.
 
 //#define USE_NO_COMMUNICATION_STATUS_LEDS // The code for the BMS and CAN communication status LED is deactivated and the pins are not switched to output
@@ -273,13 +274,13 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
 #define SPI_MISO_PIN_FOR_INFO                   6 // Definition is not used in program, only for documentation.
 #define SPI_SCK_PIN_FOR_INFO                    7 // Definition is not used in program, only for documentation.
 #else
-#  if !defined(SPI_CS_PIN)                          // Allow override by global symbol
-#define SPI_CS_PIN                              9 // Pin 9 is the default pin for the Arduino CAN bus shield. Alternately you can use pin 10 on this shield.
-//#define SPI_CS_PIN                             10 // Must be specified before #include "MCP2515_TX.hpp"
+//#  if !defined(SPI_CS_PIN)                          // Allow override by global symbol
+#define SPI_CS_PIN                              5 // second - to INVERTER!
+//#define SPI_CS_PIN                             10 // primary - to NIK's CANBUS! //Must be specified before #include "MCP2515_TX.hpp"
 #define SPI_MOSI_PIN_FOR_INFO                  11 // Definition is not used in program, only for documentation.
 #define SPI_MISO_PIN_FOR_INFO                  12 // Definition is not used in program, only for documentation.
 #define SPI_SCK_PIN_FOR_INFO                   13 // Definition is not used in program, only for documentation.
-#  endif
+//#  endif
 #endif // defined(USE_LAYOUT_FOR_644_BOARD)
 
 /*
@@ -582,7 +583,8 @@ delay(4000); // To be able to connect Serial monitor after reset or power up and
         }
 #endif
     } else {
-        Serial.println(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+        Serial.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+        Serial.println(SPI_CS_PIN);
 #if defined(USE_SERIAL_2004_LCD)
         if (sSerialLCDAvailable) {
             myLCD.setCursor(0, 3);
@@ -708,12 +710,40 @@ delay(4000); // To be able to connect Serial monitor after reset or power up and
         Serial.println(SOCDataPointsInfo.currentlyWritingOnAnEvenPage);
     }
 
-    doStandaloneTest();
+    //doStandaloneTest();
 #endif
 }
 
 void loop() {
+/*delay(1000);
+ if (initializeCAN(CAN_BAUDRATE, MHZ_OF_CRYSTAL_ASSEMBLED_ON_CAN_MODULE, &Serial) == MCP2515_RETURN_OK) { // Resets the device and start the CAN bus at 500 kbps
+        Serial.println(F("CAN started with 500 kbit/s!"));
+#if defined(USE_SERIAL_2004_LCD)
+        if (sSerialLCDAvailable) {
+            myLCD.setCursor(0, 3);
+            myLCD.print(F("CAN started"));
+            delay(2 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
+        }
+#endif
+    } else {
+        Serial.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+        Serial.println(SPI_CS_PIN);
+#if defined(USE_SERIAL_2004_LCD)
+        if (sSerialLCDAvailable) {
+            myLCD.setCursor(0, 3);
+            myLCD.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+#  if defined(STANDALONE_TEST)
+            delay(LCD_MESSAGE_PERSIST_TIME_MILLIS);
+#  else
+            delay(4 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
+#  endif
+        }
+#endif
 
+    }
+
+    return;*/
+    
     checkButtonPress();
 
     /*
