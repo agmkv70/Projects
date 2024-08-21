@@ -152,7 +152,7 @@ void requestJK_BMSStatusFrame(SoftwareSerialTX *aSerial, bool aDebugModeActive) 
     if (aDebugModeActive) {
         Serial.println();
         Serial.println(F("Send requestFrame with TxToJKBMS"));
-        printBufferHex(JKRequestStatusFrame, sizeof(JKRequestStatusFrame));
+        //printBufferHex(JKRequestStatusFrame, sizeof(JKRequestStatusFrame));
     }
     Serial.flush();
 
@@ -169,27 +169,27 @@ void initJKReplyFrameBuffer() {
  * Prints formatted reply buffer raw content
  */
 void printJKReplyFrameBuffer() {
-    uint8_t *tBufferAddress = JKReplyFrameBuffer;
-    printBufferHex(tBufferAddress, JK_BMS_FRAME_HEADER_LENGTH);
+    //uint8_t *tBufferAddress = JKReplyFrameBuffer;
+    //printBufferHex(tBufferAddress, JK_BMS_FRAME_HEADER_LENGTH);
 
-    tBufferAddress += JK_BMS_FRAME_HEADER_LENGTH;
-    printBufferHex(tBufferAddress, JK_BMS_FRAME_CELL_INFO_LENGTH);
+    //tBufferAddress += JK_BMS_FRAME_HEADER_LENGTH;
+    //printBufferHex(tBufferAddress, JK_BMS_FRAME_CELL_INFO_LENGTH);
 
-    tBufferAddress += JK_BMS_FRAME_CELL_INFO_LENGTH;
-    uint8_t tCellInfoLength = JKReplyFrameBuffer[JK_BMS_FRAME_INDEX_OF_CELL_INFO_LENGTH];
-    printBufferHex(tBufferAddress, tCellInfoLength); // Cell info
-    Serial.println();
+    //tBufferAddress += JK_BMS_FRAME_CELL_INFO_LENGTH;
+    //uint8_t tCellInfoLength = JKReplyFrameBuffer[JK_BMS_FRAME_INDEX_OF_CELL_INFO_LENGTH];
+    //printBufferHex(tBufferAddress, tCellInfoLength); // Cell info
+    //Serial.println();
 
-    tBufferAddress += tCellInfoLength;
-    int16_t tRemainingDataLength = ((int16_t) sReplyFrameBufferIndex + 1)
-            - (JK_BMS_FRAME_HEADER_LENGTH + JK_BMS_FRAME_CELL_INFO_LENGTH + JK_BMS_FRAME_TRAILER_LENGTH + tCellInfoLength);
-    if (tRemainingDataLength <= 0) {
-        return;
-    }
-    printBufferHex(tBufferAddress, tRemainingDataLength);
+    //tBufferAddress += tCellInfoLength;
+    //int16_t tRemainingDataLength = ((int16_t) sReplyFrameBufferIndex + 1)
+    //        - (JK_BMS_FRAME_HEADER_LENGTH + JK_BMS_FRAME_CELL_INFO_LENGTH + JK_BMS_FRAME_TRAILER_LENGTH + tCellInfoLength);
+    //if (tRemainingDataLength <= 0) {
+    //    return;
+    //}
+    //printBufferHex(tBufferAddress, tRemainingDataLength);
 
-    tBufferAddress += tRemainingDataLength;
-    printBufferHex(tBufferAddress, JK_BMS_FRAME_TRAILER_LENGTH); // Trailer
+    //tBufferAddress += tRemainingDataLength;
+    //printBufferHex(tBufferAddress, JK_BMS_FRAME_TRAILER_LENGTH); // Trailer
 }
 
 #define JK_BMS_RECEIVE_OK           0

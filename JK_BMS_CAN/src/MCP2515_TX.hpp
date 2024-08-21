@@ -27,7 +27,7 @@
 #ifndef _MCP2515_TX_HPP
 #define _MCP2515_TX_HPP
 
-#include "SPI_.h"
+#include "SPI.h"
 #include "mcp2515_can_dfs.h"
 #include "digitalWriteFast.h"
 

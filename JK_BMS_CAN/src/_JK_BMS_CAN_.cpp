@@ -119,9 +119,9 @@
  */
 //#define MAX_CURRENT_MODIFICATION_LOWER_SOC_THRESHOLD_PERCENT        80  // Start SOC for linear reducing maximum current. Default 80
 //#define MAX_CURRENT_MODIFICATION_MIN_CURRENT_TENTHS_OF_AMPERE       50  // Value of current at 100 % SOC. Units are 100 mA! Default 50
-#define DEBUG                 // This enables debug output for all files - only for development
-#define STANDALONE_TEST       // If activated, fixed BMS data is sent to CAN bus and displayed on LCD.
-//#define USE_NO_LCD
+//#define DEBUG                 // This enables debug output for all files - only for development
+//#define STANDALONE_TEST       // If activated, fixed BMS data is sent to CAN bus and displayed on LCD.
+#define USE_NO_LCD
 #if defined(STANDALONE_TEST)
 //#define LCD_PAGES_TEST // Additional automatic tests
 #  if defined(LCD_PAGES_TEST)
@@ -129,12 +129,12 @@
 #  endif
 //#define ENABLE_MONITORING
 #  if defined(USE_NO_LCD)
-#undef USE_NO_LCD // LCD is activated for standalone test
+#     undef USE_NO_LCD // LCD is activated for standalone test
 #  endif
 #endif
 
 #if defined(__AVR_ATmega644P__)
-#define USE_LAYOUT_FOR_644_BOARD
+#   define USE_LAYOUT_FOR_644_BOARD
 #endif
 
 /*
@@ -144,9 +144,9 @@
 #define ENABLE_MONITORING // Requires additional 858 bytes program space
 #define SERIAL_INFO_PRINT // Requires additional 1684 bytes program space
 #endif
-#define KEEP_ANALYTICS_ACCUMULATED_DATA_AT_RESET  // Requires additional 80 bytes program space
+//#define KEEP_ANALYTICS_ACCUMULATED_DATA_AT_RESET  // Requires additional 80 bytes program space
 
-//#define DO_NOT_SHOW_SHORT_CELL_VOLTAGES // Saves 470 bytes program space
+#define DO_NOT_SHOW_SHORT_CELL_VOLTAGES // Saves 470 bytes program space
 #if !defined(DO_NOT_SHOW_SHORT_CELL_VOLTAGES)
 #define SHOW_SHORT_CELL_VOLTAGES // Print 3 digits cell voltage (value - 3.0 V) on Cell Info page. Enables display of up to 20 voltages or additional information.
 #endif
@@ -175,7 +175,7 @@
 #if !defined(STANDALONE_TEST)
     #define NO_ANALYTICS          // Disables generating, storing and display of SOC graph for Arduino Serial Plotter. Saves 3856 bytes program space.
 #endif
-//#define USE_NO_LCD            // Disables the code for the LCD display. Saves 25% program space on a Nano.
+#define USE_NO_LCD            // Disables the code for the LCD display. Saves 25% program space on a Nano.
 
 //#define USE_NO_COMMUNICATION_STATUS_LEDS // The code for the BMS and CAN communication status LED is deactivated and the pins are not switched to output
 
@@ -189,16 +189,6 @@
 #endif
 
 #if defined(ARDUINO_AVR_NANO)
-/*
- * On a unmodified nano, the fuse settings reserve 2 kB program space, to be backwards compatible.
- * Only 0,5 kB is required for the new bootloader.
- * You can change this by using the Arduino IDE, selecting the Uno as board connect your Nano
- * And then run Burn Bootloader. This will not only leave the 0.5 kB new bootloader
- * but additionally this sets the right fuse settings which reserve only 0.5 kB program space.
- * I regularly do this for all Nano boards I have!
- *
- * With the new fuse settings you can just compile and upload the source for an Uno board even if you have connected the Nano board.
- */
 // Save space for an unmodified Nano
 #  if !defined(NO_CELL_STATISTICS)
 #define NO_CELL_STATISTICS          // No cell values, cell minimum, maximum and percentages.
@@ -227,39 +217,30 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
 #  endif
 #endif
 
-#if defined(USE_NO_COMMUNICATION_STATUS_LEDS)
-#define TURN_BMS_STATUS_LED_ON                  void()
-#define TURN_BMS_STATUS_LED_OFF                 void()
-#define TURN_CAN_STATUS_LED_ON                  void()
-#define TURN_CAN_STATUS_LED_OFF                 void()
+#ifdef USE_NO_COMMUNICATION_STATUS_LEDS
+#   define TURN_BMS_STATUS_LED_ON                  void()
+#   define TURN_BMS_STATUS_LED_OFF                 void()
+#   define TURN_CAN_STATUS_LED_ON                  void()
+#   define TURN_CAN_STATUS_LED_OFF                 void()
 #else
 // BMS and CAN communication status LEDs
 #  if !defined(BMS_COMMUNICATION_STATUS_LED_PIN)
 #    if defined(USE_LAYOUT_FOR_644_BOARD)
-#define BMS_COMMUNICATION_STATUS_LED_PIN        14
-#define CAN_COMMUNICATION_STATUS_LED_PIN        15
+#   define BMS_COMMUNICATION_STATUS_LED_PIN        14
+#   define CAN_COMMUNICATION_STATUS_LED_PIN        15
 #    else
-#define BMS_COMMUNICATION_STATUS_LED_PIN        6
-#define CAN_COMMUNICATION_STATUS_LED_PIN        7
+#       define BMS_COMMUNICATION_STATUS_LED_PIN        6
+#       define CAN_COMMUNICATION_STATUS_LED_PIN        7
 #    endif
 #  endif
-#define TURN_BMS_STATUS_LED_ON                  digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, HIGH)
-#define TURN_BMS_STATUS_LED_OFF                 digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, LOW)
-#define TURN_CAN_STATUS_LED_ON                  digitalWriteFast(CAN_COMMUNICATION_STATUS_LED_PIN, HIGH)
-#define TURN_CAN_STATUS_LED_OFF                 digitalWriteFast(CAN_COMMUNICATION_STATUS_LED_PIN, LOW)
+#   define TURN_BMS_STATUS_LED_ON                  digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, HIGH)
+#   define TURN_BMS_STATUS_LED_OFF                 digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, LOW)
+#   define TURN_CAN_STATUS_LED_ON                  digitalWriteFast(CAN_COMMUNICATION_STATUS_LED_PIN, HIGH)
+#   define TURN_CAN_STATUS_LED_OFF                 digitalWriteFast(CAN_COMMUNICATION_STATUS_LED_PIN, LOW)
 #endif
 
 #if !defined(NO_ANALYTICS)
 #define DISABLE_ESR_IN_GRAPH_OUTPUT_PIN         8 // If this pin is held low, the ESR value is not used to correct the voltage in the graph output.
-#endif
-
-//#define TIMING_TEST
-#if defined(TIMING_TEST)
-#  if defined(USE_LAYOUT_FOR_644_BOARD)
-#define TIMING_TEST_PIN                        13
-#  else
-#define TIMING_TEST_PIN                        10 // is SS pin for SPI and must be used as OUTPUT (set by SPI.init())!
-#  endif
 #endif
 
 /*
@@ -269,17 +250,17 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
  *   I2C: SDA - A4, SCL - A5.
  */
 #if defined(USE_LAYOUT_FOR_644_BOARD)
-#define SPI_CS_PIN                              4 // !SS Must be specified before #include "MCP2515_TX.hpp"
-#define SPI_MOSI_PIN_FOR_INFO                   5 // Definition is not used in program, only for documentation.
-#define SPI_MISO_PIN_FOR_INFO                   6 // Definition is not used in program, only for documentation.
-#define SPI_SCK_PIN_FOR_INFO                    7 // Definition is not used in program, only for documentation.
+#   define SPI_CS_PIN                              4 // !SS Must be specified before #include "MCP2515_TX.hpp"
+#   define SPI_MOSI_PIN_FOR_INFO                   5 // Definition is not used in program, only for documentation.
+#   define SPI_MISO_PIN_FOR_INFO                   6 // Definition is not used in program, only for documentation.
+#   define SPI_SCK_PIN_FOR_INFO                    7 // Definition is not used in program, only for documentation.
 #else
 //#  if !defined(SPI_CS_PIN)                          // Allow override by global symbol
 #define SPI_CS_PIN                              5 // second - to INVERTER!
-//#define SPI_CS_PIN                             10 // primary - to NIK's CANBUS! //Must be specified before #include "MCP2515_TX.hpp"
-#define SPI_MOSI_PIN_FOR_INFO                  11 // Definition is not used in program, only for documentation.
-#define SPI_MISO_PIN_FOR_INFO                  12 // Definition is not used in program, only for documentation.
-#define SPI_SCK_PIN_FOR_INFO                   13 // Definition is not used in program, only for documentation.
+//# define SPI_CS_PIN                             10 // primary - to NIK's CANBUS! //Must be specified before #include "MCP2515_TX.hpp"
+#   define SPI_MOSI_PIN_FOR_INFO                  11 // Definition is not used in program, only for documentation.
+#   define SPI_MISO_PIN_FOR_INFO                  12 // Definition is not used in program, only for documentation.
+#   define SPI_SCK_PIN_FOR_INFO                   13 // Definition is not used in program, only for documentation.
 //#  endif
 #endif // defined(USE_LAYOUT_FOR_644_BOARD)
 
@@ -287,15 +268,15 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
  * Program timing, may be adapted to your requirements
  */
 #if defined(STANDALONE_TEST)
-#define MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS     1000
-#define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             1000
-#define SECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS          "1" // Only for display on LCD
-#define SECONDS_BETWEEN_CAN_FRAME_SEND                  "1" // Only for display on LCD
+#   define MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS     1000
+#   define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             1000
+#   define SECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS          "1" // Only for display on LCD
+#   define SECONDS_BETWEEN_CAN_FRAME_SEND                  "1" // Only for display on LCD
 #else
-#define MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS     2000
-#define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             2000
-#define SECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS          "2" // Only for display on LCD
-#define SECONDS_BETWEEN_CAN_FRAME_SEND                  "2" // Only for display on LCD
+#   define MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS     2000
+#   define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             2000
+#   define SECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS          "2" // Only for display on LCD
+#   define SECONDS_BETWEEN_CAN_FRAME_SEND                  "2" // Only for display on LCD
 #endif
 
 /*
@@ -306,16 +287,20 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
 //#define NO_BEEP_ON_ERROR              // If activated, Do not beep on error or timeout.
 //#define ONE_BEEP_ON_ERROR             // If activated, only beep once if error was detected.
 #define SUPPRESS_CONSECUTIVE_SAME_ALARMS // If activated, recurring alarms are suppressed, e.g. undervoltage alarm tends to come and go in a minute period
-#define BEEP_TIMEOUT_SECONDS        60L // 1 minute, Maximum is 254 seconds = 4 min 14 s
+#define BEEP_TIMEOUT_SECONDS        10L // 1 minute, Maximum is 254 seconds = 4 min 14 s
+
 #if !defined(NO_BEEP_ON_ERROR) && !defined(ONE_BEEP_ON_ERROR)
-#define MULTIPLE_BEEPS_WITH_TIMEOUT     // If activated, beep for 1 minute if error was detected. Timeout is disabled if debug is active.
+#   define MULTIPLE_BEEPS_WITH_TIMEOUT     // If activated, beep for 1 minute if error was detected. Timeout is disabled if debug is active.
 #endif
+
 bool sDoAlarmOrTimeoutBeep = false;     // If true, we do an error beep at the end of the loop
-#  if defined(MULTIPLE_BEEPS_WITH_TIMEOUT)  // Beep one minute
+
+#if defined(MULTIPLE_BEEPS_WITH_TIMEOUT)  // Beep one minute
 uint8_t sBeepTimeoutCounter = 0;
 #endif
+
 #if defined(NO_BEEP_ON_ERROR) && defined(ONE_BEEP_ON_ERROR)
-#error NO_BEEP_ON_ERROR and ONE_BEEP_ON_ERROR are both defined, which makes no sense!
+#   error NO_BEEP_ON_ERROR and ONE_BEEP_ON_ERROR are both defined, which makes no sense!
 #endif
 
 #define MILLIS_IN_ONE_SECOND 1000L
@@ -326,8 +311,9 @@ uint8_t sBeepTimeoutCounter = 0;
  * Button at INT0 / D2 for switching LCD pages
  */
 #if defined(ARDUINO_AVR_ATmega644)
-#define USE_INT2_FOR_BUTTON_0
+#   define USE_INT2_FOR_BUTTON_0
 #endif
+
 #define USE_BUTTON_0                 // Enable code for 1. button at INT0 / D2
 #define BUTTON_DEBOUNCING_MILLIS 100 // With this you can adapt to the characteristic of your button. Default is 50.
 #define NO_BUTTON_RELEASE_CALLBACK   // Disables the code for release callback. This saves 2 bytes RAM and 64 bytes program memory.
@@ -344,38 +330,29 @@ bool readJK_BMSStatusFrame();
 void processJK_BMSStatusFrame();
 void handleFrameReceiveTimeout();
 
-#include "HexDump.hpp"
+//#include "HexDump.hpp"
 #include "digitalWriteFast.h"
 
-/*
- * Software serial for JK-BMS stuff
- */
+//Software serial for JK-BMS stuff
 #if !defined(MAXIMUM_NUMBER_OF_CELLS)
-#define MAXIMUM_NUMBER_OF_CELLS     24 // Maximum number of cell info which can be converted. Must be before #include "JK-BMS.hpp".
+#define MAXIMUM_NUMBER_OF_CELLS     8 // Maximum number of cell info which can be converted. Must be before #include "JK-BMS.hpp".
 #endif
+
 #include "JK-BMS.hpp"
 
-/*
- * Software serial for JK-BMS request frame sending
- */
+//Software serial for JK-BMS request frame sending
 #include "SoftwareSerialTX.h"
-/*
- * Use a 115200 baud software serial for the short request frame.
- * If available, we also can use a second hardware serial here :-).
- */
+//Use a 115200 baud software serial for the short request frame.
+//If available, we also can use a second hardware serial here :-).
 SoftwareSerialTX TxToJKBMS(JK_BMS_TX_PIN);
 bool sResponseFrameBytesAreExpected = false;   // If true, request was recently sent so now check for serial input of response frame
 uint32_t sMillisOfLastRequestedJKDataFrame = -MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS; // Initial value to start first request immediately
-/*
- * BMS communication timeout
- */
+//BMS communication timeout
 uint32_t sMillisOfLastReceivedByte = 0;     // For timeout detection
 bool sJKBMSFrameHasTimeout;                 // True, as long as BMS timeout persists.
 bool sTimeoutJustdetected = false;          // Is set to true at first detection of timeout and reset by beep timeout
 
-/*
- * CAN stuff
- */
+//CAN stuff
 #if !defined(NO_CAPACITY_35F_EXTENSIONS) // SMA Sunny Island inverters
 #define CAPACITY_35F_EXTENSIONS // Add frame 0x35F for total capacity for SMA Sunny Island inverters, which is no problem for Deye inverters.
 #endif
@@ -432,37 +409,6 @@ void handleOvervoltage();
 //#define LOCAL_DEBUG // This enables debug output only for this file - only for development
 #include "LocalDebugLevelStart.h" // no include "LocalDebugLevelEnd.h" required :-)
 
-#if defined(STANDALONE_TEST)
-const uint8_t TestJKReplyStatusFrame[] PROGMEM = { /* Header*/0x4E, 0x57, 0x01, 0x2D, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x01,
-/*Length of Cell voltages*/
-0x79, 0x30,
-/*Cell voltages*/
-0x01, 0x0C, 0xC6, 0x02, 0x0C, 0xBE, 0x03, 0x0C, 0xC7, 0x04, 0x0C, 0xC7, 0x05, 0x0C, 0xC7, 0x06, 0x0C, 0xC5, 0x07, 0x0C, 0xC6, 0x08,
-        0x0C, 0xC7, 0x09, 0x0C, 0xC2, 0x0A, 0x0C, 0xC2, 0x0B, 0x0C, 0xC2, 0x0C, 0x0C, 0xC2, 0x0D, 0x0C, 0xC1, 0x0E, 0x0C, 0xBE,
-        0x0F, 0x0C, 0xC1, 0x10, 0x0C, 0xC1,
-        /*JKFrameAllDataStruct*/
-        0x80, 0x00, 0x16, 0x81, 0x00, 0x15, 0x82, 0x00, 0x15, /*Voltage*/0x83, 0x14, 0x6C, /*Current*/0x84, 0x08, 0xD0, /*SOC*/0x85,
-//        0x80, 0x00, 0x16, 0x81, 0x00, 0x15, 0x82, 0x00, 0x15, /*Voltage*/0x83, 0x14, 0x6C, /*Current*/0x84, 0x80, 0xD0, /*SOC*/0x85,
-        0x47, 0x86, 0x02, 0x87, 0x00, 0x04, 0x89, 0x00, 0x00, 0x01, 0xE0, 0x8A, 0x00, 0x0E, /*Warnings*/0x8B, 0x00, 0x00, 0x8C,
-        0x00, 0x07, 0x8E, 0x16, 0x26, 0x8F, 0x10, 0xAE, /*CellOvervoltageProtection*/0x90, 0x0F, 0xD2, 0x91, 0x0F, 0xA0, 0x92, 0x00,
-        0x05,
-        /*CellOvervoltageProtection*/0x93, 0x0B, 0xEA, 0x94, 0x0C, 0x1C, 0x95, 0x00, 0x05, 0x96, 0x01, 0x2C, 0x97, 0x00, 0x07, 0x98,
-        0x00, 0x03, 0x99, 0x00, 0x05, 0x9A, 0x00, 0x05, 0x9B, 0x0C, 0xE4, 0x9C, 0x00, 0x08, 0x9D, 0x01, 0x9E, 0x00, 0x5A, 0x9F,
-        0x00, 0x46, 0xA0, 0x00, 0x64, 0xA1, 0x00, 0x64, 0xA2, 0x00, 0x14, /*ChargeOvertemperature*/0xA3, 0x00, 0x46, /*DischargeOvertemperature*/
-        0xA4, 0x00, 0x46, /*ChargeUndertemperature*/0xA5, 0xFF, 0xEC, 0xA6, 0xFF, 0xF6, /*DischargeUndertemperature*/0xA7, 0xFF,
-        0xEC, 0xA8, 0xFF, 0xF6, 0xA9, 0x0E, /*TotalCapacityAmpereHour*/0xAA, 0x00, 0x00, 0x01, 0x40, 0xAB, 0x01, 0xAC, 0x01, 0xAD,
-        0x04, 0x11, 0xAE, 0x01, 0xAF, 0x01, 0xB0, 0x00, 0x0A, 0xB1, 0x14, 0xB2, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x00, 0x00,
-        0x00, 0x00, 0xB3, 0x00, 0xB4, 0x49, 0x6E, 0x70, 0x75, 0x74, 0x20, 0x55, 0x73, 0xB5, 0x32, 0x31, 0x30, 0x31, 0xB6, 0x00,
-        0x06, 0x07, 0x29, /*Uptime*/0xB7, 0x31, 0x31, 0x2E, 0x58, 0x57, 0x5F, 0x53, 0x31, 0x31, 0x2E, 0x32, 0x36, 0x5F, 0x5F, 0x5F,
-        0xB8, 0x00, /*ActualBatteryCapacityAmpereHour*/
-        0xB9, 0x00, 0x00, 0x01, 0x30, 0xBA, 0x49, 0x6E, 0x70, 0x75, 0x74, 0x20, 0x55, 0x73, 0x65, 0x72, 0x64, 0x61, 0x4A, 0x4B,
-        0x5F, 0x42, 0x32, 0x41, 0x32, 0x30, 0x53, 0x32, 0x30, 0x50, 0xC0, 0x01,
-        /*Trailer*/
-        0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x51, 0xC2 };
-
-void doStandaloneTest();
-#endif
-
 /*
  * Helper macro for getting a macro definition as string
  */
@@ -480,9 +426,7 @@ void setup() {
     pinModeFast(BMS_COMMUNICATION_STATUS_LED_PIN, OUTPUT);
     pinModeFast(CAN_COMMUNICATION_STATUS_LED_PIN, OUTPUT);
 #endif
-#if defined(TIMING_TEST)
-    pinModeFast(TIMING_TEST_PIN, OUTPUT);
-#endif
+
 #if !defined(NO_ANALYTICS)
     pinModeFast(DISABLE_ESR_IN_GRAPH_OUTPUT_PIN, INPUT_PULLUP);
 #endif
@@ -550,7 +494,7 @@ delay(4000); // To be able to connect Serial monitor after reset or power up and
     JK_INFO_PRINTLN(F("mOhm"));
 #endif
 
-    tone(BUZZER_PIN, 2200, 50);
+    tone(BUZZER_PIN, 3000, 100);
 
 #if defined(USE_SERIAL_2004_LCD)
     setupLCD();
@@ -622,96 +566,6 @@ delay(4000); // To be able to connect Serial monitor after reset or power up and
     printDebugInfoOnLCD();
 #endif
 
-#if defined(STANDALONE_TEST)
-    /*
-     * Copy test data to receive buffer
-     */
-    Serial.println(F("Standalone test. Use fixed demo data"));
-    Serial.println();
-    memcpy_P(JKReplyFrameBuffer, TestJKReplyStatusFrame, sizeof(TestJKReplyStatusFrame));
-    sReplyFrameBufferIndex = sizeof(TestJKReplyStatusFrame) - 1;
-    printJKReplyFrameBuffer();
-    Serial.println();
-    processReceivedData(); // sets sCANDataIsInitialized to true
-    printReceivedData();
-    /*
-     * Copy complete reply and computed values for change determination
-     */
-    lastJKReply.SOCPercent = sJKFAllReplyPointer->SOCPercent;
-    lastJKReply.AlarmUnion.AlarmsAsWord = sJKFAllReplyPointer->AlarmUnion.AlarmsAsWord;
-    lastJKReply.BMSStatus.StatusAsWord = sJKFAllReplyPointer->BMSStatus.StatusAsWord;
-    lastJKReply.SystemWorkingMinutes = sJKFAllReplyPointer->SystemWorkingMinutes;
-
-//    if (true) {
-    // first value is still written by processReceivedData
-    if (SOCDataPointsInfo.ArrayLength > 250) {
-        Serial.println(F("EEPROM for standalone test is already initialized"));
-    } else {
-        // If EEPROM empty, fill in some values
-        int8_t tIncrement = -1;
-        Serial.println();
-        Serial.println();
-        Serial.println(F("Now write initial data to EEPROM"));
-        Serial.print(F("SOC="));
-        Serial.println(sJKFAllReplyPointer->SOCPercent);
-        Serial.print(F("JKComputedData.Battery10MilliAmpere="));
-        Serial.println(JKComputedData.Battery10MilliAmpere);
-        Serial.print(F("JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt="));
-        Serial.println(JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt);
-
-        for (int i = 0; i < 260; ++i) { // force buffer wrap around
-            sJKFAllReplyPointer->SOCPercent += tIncrement;
-            writeSOCData(); // write too EEPROM here.
-
-            // change accumulated value
-            JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt += tIncrement * 4;
-
-            Serial.print(sJKFAllReplyPointer->SOCPercent);
-            Serial.print(F(", "));
-
-            // Test negative values
-            if (sJKFAllReplyPointer->SOCPercent == 2 && tIncrement < 0) {
-                JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt = -10; // -100 mV
-                Serial.print(F(" -100 mV "));
-            }
-
-            /*
-             * Generate EEPROM data by calling writeSOCData(); multiple times for each SOC value
-             */
-            for (int j = 0; j < (i + 4) * 2; ++j) { // 320 corresponds to 2 Ah
-                // accumulate values
-                writeSOCData();
-                lastJKReply.SOCPercent = sJKFAllReplyPointer->SOCPercent; // for transition detection from 0 to 1
-            }
-
-            // Manage 0% and 100 %
-            if (sJKFAllReplyPointer->SOCPercent == 0 || sJKFAllReplyPointer->SOCPercent == 100) {
-                if (sJKFAllReplyPointer->SOCPercent == 100) {
-                    // Add additional capacity after 100%
-                    for (int j = 0; j < 8000; ++j) {
-                        writeSOCData();
-                    }
-                } else {
-                    // set difference voltage to 0
-                    JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt = 0;
-                }
-                // reverse values at 0 and 100
-                JKComputedData.Battery10MilliAmpere = -JKComputedData.Battery10MilliAmpere;
-                tIncrement = -tIncrement;
-            }
-        }
-        Serial.println();
-        findFirstSOCDataPointIndex();
-        Serial.print(F("EEPROM SOC data start index="));
-        Serial.print(SOCDataPointsInfo.ArrayStartIndex);
-        Serial.print(F(" length="));
-        Serial.print(SOCDataPointsInfo.ArrayLength);
-        Serial.print(F(", even="));
-        Serial.println(SOCDataPointsInfo.currentlyWritingOnAnEvenPage);
-    }
-
-    //doStandaloneTest();
-#endif
 }
 
 void loop() {
@@ -757,43 +611,18 @@ void loop() {
         while (Serial.available()) {
             Serial.read();
         }
-#if defined(TIMING_TEST)
-        digitalWriteFast(TIMING_TEST_PIN, HIGH);
-#endif
         requestJK_BMSStatusFrame(&TxToJKBMS, sDebugModeActivated); // 1.85 ms
-#if defined(TIMING_TEST)
-        digitalWriteFast(TIMING_TEST_PIN, LOW);
-#endif
         sResponseFrameBytesAreExpected = true; // Enable check for serial input of response
         initJKReplyFrameBuffer();
         sMillisOfLastReceivedByte = millis(); // initialize reply timeout
     }
 
-#if defined(STANDALONE_TEST)
-    sResponseFrameBytesAreExpected = false; // No response!
-    sBMSFrameProcessingComplete = true; // for LCD timeout etc.
-    processReceivedData(); // for statistics
-    writeSOCData(); // for analytics tests
-    printBMSDataOnLCD(); // for switching between MAX and MIN display
-    delay(MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS); // do it simple :-)
-
-#  if !defined(USE_NO_COMMUNICATION_STATUS_LEDS)
-    // Simulate BMS reading
-    digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, HIGH); // Turn on status LED. LED is turned off at end of loop.
-    delay(20); // do it simple :-)
-    digitalWriteFast(BMS_COMMUNICATION_STATUS_LED_PIN, LOW); // Turn on status LED. LED is turned off at end of loop.
-    delay(20); // do it simple :-)
-#  endif
-
-#else
     /*
      * Get reply from BMS and check timeout
      */
     if (sResponseFrameBytesAreExpected) {
         if (Serial.available()) {
-#  if defined(TIMING_TEST)
-            digitalWriteFast(TIMING_TEST_PIN, HIGH);
-#  endif
+            TURN_BMS_STATUS_LED_ON;
             if (readJK_BMSStatusFrame()) {
                 /*
                  * Frame completely received, now process it
@@ -803,10 +632,7 @@ void loop() {
                 processJK_BMSStatusFrame(); // Process the complete receiving of the status frame and set the appropriate flags
                 TURN_BMS_STATUS_LED_OFF;
             }
-#  if defined(TIMING_TEST)
-            digitalWriteFast(TIMING_TEST_PIN, LOW);
-#  endif
-
+            TURN_BMS_STATUS_LED_OFF;
         } else if (millis() - sMillisOfLastReceivedByte >= TIMEOUT_MILLIS_FOR_FRAME_REPLY) {
             /*
              * Here we have requested response frame, but serial was not available fore a longer time => timeout at receiving
@@ -824,7 +650,6 @@ void loop() {
             }
         }
     }
-#endif // !defined(STANDALONE_TEST)
 
     /*
      * Send CAN frame independently of the period of JK-BMS data requests,
@@ -1107,26 +932,6 @@ void checkButtonPress() {
     }
 #endif // defined(USE_SERIAL_2004_LCD)
 }
-
-#if defined(STANDALONE_TEST)
-void doStandaloneTest() {
-
-#  if defined(LCD_PAGES_TEST)
-    if (sSerialLCDAvailable) {
-        testLCDPages();
-        delay(LCD_MESSAGE_PERSIST_TIME_MILLIS);
-        testPrintFloatValueRightAlignedOnLCD();
-        delay(2*LCD_MESSAGE_PERSIST_TIME_MILLIS);
-#    if defined(BIG_NUMBER_TEST)
-        testBigNumbers();
-#    endif
-        memcpy_P(JKReplyFrameBuffer, TestJKReplyStatusFrame, sizeof(TestJKReplyStatusFrame));
-        processReceivedData(); // to clear every changes
-    }
-#  endif
-}
-
-#endif
 
 void handleOvervoltage() {
 #if defined(USE_SERIAL_2004_LCD)
