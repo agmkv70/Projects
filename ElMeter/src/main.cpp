@@ -1,4 +1,4 @@
-#define _MAX_FIXEDARRAY_DEFINED 7
+#define _MAX_FIXEDARRAY_DEFINED 12
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 
@@ -8,10 +8,23 @@
 #include <NIK_can.h>
 
 //#define HardSerial
-#define testmodeS2 //was
-//#define testmodeS
-#define testmode //was
 //#define testmodeCAN
+//#define testmode 
+//#define testmodeS
+//#define testmodeS2 
+//#define testmodeElMeter
+
+#ifdef testmodeS
+  #include <NIK_ONLY_WifiBlynk.h>
+  #include <TLog.h>      // The T-Logging library.
+  //#include <TelnetSerialStream.h>
+  //TelnetSerialStream telnetSerialStream = TelnetSerialStream();
+  // Likewise let http://<ipaddres>:80/ show the log in a webbrowser.
+  #include <WebSerialStream.h>
+  WebSerialStream webSerialStream = WebSerialStream();
+#endif
+
+int eepromVIAddr=10,eepromValueIs=7100+1; //if this is in eeprom, then we got valid values, not junk
 
 //-------- CAN to meter
 #ifndef HardSerial
@@ -47,8 +60,9 @@ volatile byte curent_Uall_cmd[] = {8,0x16,0x11}; //U all phase?
 
 //#define KWhDeltaIntervalmillis 3600000L;
 volatile unsigned long pred_EnergyKWhmillis=0;
-volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=46400.16; //to return delta//to know main meter value (initval=22/06/2022)
+volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=0, EnergyKWh_ResetValue=0; //to return delta//to know main meter value (initval=22/06/2022)
 volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
+
 #define MAXRESPONSE 21
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
@@ -57,7 +71,13 @@ volatile int byteSend;
 //unsigned long time_sent_kWh=0, time_sent_kWhDelta=0;
 
 unsigned int crc16MODBUS(const byte *nData, int count);
-void Send2ServerElMeterData();
+void Send2ServerElMeterDataCallback();
+void Send2ServerElMeterData(int);
+byte ElMeter_TestConnection();
+byte ElMeter_OpenUser(byte usr);
+byte ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff);
+byte ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
+byte ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
 #ifdef HardSerial
   void SerialCleanSwap(){
     //clear read buffer
@@ -69,51 +89,98 @@ void Send2ServerElMeterData();
   }
 #endif //HardSerial
 
+void EEPROM_storeValues(){
+  //return;
+  EEPROM_WriteAnything(eepromVIAddr,(byte*)&eepromValueIs,sizeof(eepromValueIs));
+  
+  EEPROM_WriteAnything(VPIN_ElMeter_EnergyKWh_Reset   ,(byte*)&EnergyKWh_ResetValue,sizeof(EnergyKWh_ResetValue));
+  EEPROM_WriteAnything(VPIN_ElMeter_EnergyKWh_cor     ,(byte*)&_corr_EnergyKWh,     sizeof(_corr_EnergyKWh));
+}
+void EEPROM_restoreValues(){
+  //return;
+  int ival;
+  EEPROM_ReadAnything(eepromVIAddr,(byte*)&ival,sizeof(ival));
+  if(ival != eepromValueIs){
+    EEPROM_storeValues();
+    return; //never wrote valid values into eeprom
+  }
+
+  EEPROM_ReadAnything(VPIN_ElMeter_EnergyKWh_Reset     ,(byte*)&EnergyKWh_ResetValue,sizeof(EnergyKWh_ResetValue));
+  EEPROM_ReadAnything(VPIN_ElMeter_EnergyKWh_cor       ,(byte*)&_corr_EnergyKWh,     sizeof(_corr_EnergyKWh));
+}
 ///////////////////////////////////////////////////
 void setup(){ 
+  //ESP32:
+  //pinMode(LED_RED, OUTPUT);
+  //pinMode(LED_GREEN, OUTPUT);
+  //pinMode(LED_BLUE, OUTPUT);
+  //pinMode(LED_BUILTIN, OUTPUT);
+  //digitalWrite(LED_RED,   LOW);
+  //digitalWrite(LED_GREEN, LOW);
+  //digitalWrite(LED_BLUE,  LOW);
+  //delay(1000);
+
+  
   Serial.begin(115200);
-  digitalWrite(LED_BUILTIN,1);
-  delay(500);
-  digitalWrite(LED_BUILTIN,0);
-  delay(300);
+    //digitalWrite(LED_BUILTIN,1);
+    //delay(500);
+    //digitalWrite(LED_BUILTIN,0);
+    //delay(300);
+  #ifdef testmodeS
+    Log.println("Started (this will only show up on serial - nothing setup and no network)");
+    //Log.addPrintStream(std::make_shared<TelnetSerialStream>(telnetSerialStream));
+    Log.addPrintStream(std::make_shared<WebSerialStream>(webSerialStream));
+    WiFi.begin(ssid, pass);
+    while (!WiFi.isConnected()) {
+      delay(500);
+      Log.print(".");
+    }
+    Log.println("Connected!");
+    // Set up mDNS to make our serial-2-telnet and http service visible and easy to find.
+    MDNS.begin("ElMeter");
+    Log.begin();
+  #endif
+
+  EEPROM_restoreValues();
   
   #ifdef testmodeS
     //Serial.begin(115200);
     //Serial.begin(9600);
   #endif //testmodeS
   #ifdef testmodeS
-    Serial.println("***setup start***");
+    Log.println("***setup start***");
     delay(100);//Serial.flush();
   #endif //testmodeS
 
   //byte res = ElMeter_SetTimeCorr(20,05,00);
-  //Serial.print("SetTime: ");
-  //Serial.println(res);
+  //Log.print("SetTime: ");
+  //Log.println(res);
 
   /////////////////////////////////////////////////////////////////////////////////////
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
   if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK){ //MCP_ANY, MCP_STD, MCP_STDEXT
-    ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
+    #ifdef testmodeS
+      Log.println("CAN bus OK: MCP2515 Initialized Successfully!");
+    #endif
   }else{  
     #ifdef testmodeS
-    Serial.println("Error Initializing CAN bus driver MCP2515...");
+      Log.println("Error Initializing CAN bus driver MCP2515...");
     #endif
   }
 
-  //initialize filters Masks(0-1),Filters(0-5):
-  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;      //0x0F  0x010F0000;
-  // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;  //0x04  0x01040000;
-  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;  //0x04  0x01040000;
-  //receive 0x100 messages:
+   //initialize filters Masks(0-1),Filters(0-5):
+  unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
+  unsigned long filt = (0x0100L | CAN_Unit_FILTER_ELCT1)<<16;	//0x04	0x01040000;
+  //first mask:   ID=0x100 - receive sent to all 0x100
   CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
   CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-  CAN0.init_Filt(1,0,0x01000000);
-
-  CAN0.init_Mask(1,0,0x01FF0000);                // Init first mask...
-  CAN0.init_Filt(2,0,0x01000000);
-  CAN0.init_Filt(3,0,0x01000000);
-  CAN0.init_Filt(4,0,0x01000000);
-  CAN0.init_Filt(5,0,0x01000000);
+  CAN0.init_Filt(1,0,0x01000000);                // Init second filter...
+  //second mask:  ID=0x010F - receive only sent to our unit
+  CAN0.init_Mask(1,0,mask);                // Init second mask...
+  CAN0.init_Filt(2,0,filt);                // Init third filter...
+  CAN0.init_Filt(3,0,filt);                // Init fouth filter...
+  CAN0.init_Filt(4,0,filt);                // Init fifth filter...
+  CAN0.init_Filt(5,0,filt);                // Init sixth filter...
   
   CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
@@ -122,7 +189,9 @@ void setup(){
     //softserial
     ElCANSerial.begin(9600);
     if (!ElCANSerial) { // If the object did not initialize, then its configuration is invalid
-      Serial.println("!!Can't connect to ElMeter!");// Probably invalid SoftwareSerial pin configuration!!"); 
+      #ifdef testmodeS
+        Log.println("!!Can't connect to ElMeter!");// Probably invalid SoftwareSerial pin configuration!!"); 
+      #endif
       int on=1;
       while (1) { // Don't continue with invalid configuration
         digitalWrite(LED_BUILTIN,on);
@@ -130,14 +199,17 @@ void setup(){
         on^=1;
       }
     } 
+    #ifdef testmodeS
+      Log.println("Started SoftSerial on pin 2, 3");
+    #endif
   #endif //softserial
   
   /*for(int i=0;i<timer.getNumTimers();){
     timer.deleteTimer(i);
   }*/
-  timer.setInterval(3000L, Send2ServerElMeterData); 
+  timer.setInterval(3000L, Send2ServerElMeterDataCallback); 
   #ifdef testmodeS
-    Serial.println("***setup end***");
+    Log.println("***setup end***");
     //Serial.flush();
   #endif //testmodeS
   delay(100);//
@@ -154,87 +226,93 @@ void setup(){
 
 void loop(){
   /*delay(1000);
-  Serial.println("loop()");
-  Serial.flush();
+  Log.println("loop()");
+  Log.flush();
   */
   //loop CANbus+Blynk
   timer.run();
   checkReadCAN();
-  //////////////////////////////
-  /*return;
-  
-  //#ifdef testmodeS
-    Serial.println();
 
-    Serial.print("Test connection: ");
+  #ifdef testmodeS
+    Log.loop();
+  #endif
+  //////////////////////////////
+  return;
+  
+  #ifdef testmodeElMeter
+    Log.println();
+
+    Log.print("Test connection: ");
     byte res=0;
     res = ElMeter_TestConnection();
-    Serial.println(res);
+    Log.println(res);
     if(res<=0){
       ElCANSerial.begin(9600);
       return;
     } 
 
-    Serial.print("Login user1: ");
+    Log.print("Login user1: ");
     res = ElMeter_OpenUser(1);
-    Serial.println(res);
+    Log.println(res);
 
+    /*
     byte YY,MM,DD,hh,mm,ss,sumerWinter;
-    Serial.print("Get time: ");
+    Log.print("Get time: ");
     res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss,&sumerWinter);
-    Serial.print(res);
-    Serial.print(" ");
-    Serial.print(YY);
-    Serial.print("-");
-    Serial.print(MM);
-    Serial.print("-");
-    Serial.print(DD);
-    Serial.print(" ");
-    Serial.print(hh);
-    Serial.print(":");
-    Serial.print(mm);
-    Serial.print(":");
-    Serial.print(ss);
-    Serial.println();
+    Log.print(res);
+    Log.print(" ");
+    Log.print(YY);
+    Log.print("-");
+    Log.print(MM);
+    Log.print("-");
+    Log.print(DD);
+    Log.print(" ");
+    Log.print(hh);
+    Log.print(":");
+    Log.print(mm);
+    Log.print(":");
+    Log.print(ss);
+    Log.println();
+    */
     
     float Wh;
-    Serial.print("Wh: ");
+    Log.print("Wh: ");
     res = ElMeter_GetEnergyA(&Wh,0);
-    Serial.print(res,3);
-    Serial.print(" = ");
-    Serial.println(Wh,3);
+    Log.print(res,3);
+    Log.print(" = ");
+    Log.println(Wh,3);
     res = ElMeter_GetEnergyA(&Wh,1);
-    Serial.print("Wh1: ");
-    Serial.print(res);
-    Serial.print(" = ");
-    Serial.println(Wh,3);
+    Log.print("Wh1: ");
+    Log.print(res);
+    Log.print(" = ");
+    Log.println(Wh,3);
     res = ElMeter_GetEnergyA(&Wh,2);
-    Serial.print("Wh2: ");
-    Serial.print(res);
-    Serial.print(" = ");
-    Serial.println(Wh,3);
+    Log.print("Wh2: ");
+    Log.print(res);
+    Log.print(" = ");
+    Log.println(Wh,3);
     
     float ph1,ph2,ph3;
-    Serial.print("Power: ");
+    Log.print("Power: ");
     res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
-    Serial.print(res);
-    Serial.print("; 1= ");
-    Serial.print(ph1,3);
-    Serial.print(" 2= ");
-    Serial.print(ph2,3);
-    Serial.print(" 3= ");
-    Serial.println(ph3,3);
+    Log.print(res);
+    Log.print("; 1= ");
+    Log.print(ph1,3);
+    Log.print(" 2= ");
+    Log.print(ph2,3);
+    Log.print(" 3= ");
+    Log.println(ph3,3);
     
-    Serial.print("Voltage: ");
+    Log.print("Voltage: ");
     res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
-    Serial.print(res);
-    Serial.print("; 1= ");
-    Serial.print(ph1);
-    Serial.print(" 2= ");
-    Serial.print(ph2);
-    Serial.print(" 3= ");
-    Serial.println(ph3);
-*/
+    Log.print(res);
+    Log.print("; 1= ");
+    Log.print(ph1);
+    Log.print(" 2= ");
+    Log.print(ph2);
+    Log.print(" 3= ");
+    Log.println(ph3);
+
     /*
     ElMeter__ExecQuery(test_cmd, sizeof(test_cmd), 4);
     ElMeter__ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
@@ -262,7 +340,7 @@ void loop(){
 
     //delay(8000);
   
-  //#endif //testmodeS
+  #endif //testmodeElMeter
 }
 
 unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет контрольной суммы для запроса
@@ -306,9 +384,9 @@ unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет ко�
   }
   
   //#ifdef testmodeS2
-    //Serial.print(" crc=");
-    //Serial.println(crc);
-    //Serial.flush();
+    //Log.print(" crc=");
+    //Log.println(crc);
+    //Log.flush();
   //#endif
   return crc;
 
@@ -328,8 +406,8 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
   int s_address_cmd_crc = s_address_cmd + 2; //plus CRC
 
   #ifdef testmodeS
-    Serial.print("ExecQ: ");
-    Serial.flush();
+    Log.print("ExecQ: ");
+    Log.flush();
   #endif
   //write adress:
   int pos = 0;
@@ -341,14 +419,14 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
     address_cmd_crc[pos++] = cmd[i];
   }
   #ifdef testmodeS
-    Serial.print("CRC: ");
-    Serial.flush();
+    Log.print("CRC: ");
+    Log.flush();
   #endif
   
   unsigned int crc = crc16MODBUS(address_cmd_crc, s_address_cmd);
   #ifdef testmodeS
-    Serial.print("CRCOK: ");
-    Serial.flush();
+    Log.print("CRCOK: ");
+    Log.flush();
   #endif
   
   byte crc1 = crc & 0xFF;
@@ -357,16 +435,16 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
   address_cmd_crc[pos] = crc2;
 
   #ifdef testmodeS
-    Serial.print("Send HEX:  ");
-    Serial.flush();
+    Log.print("Send HEX:  ");
+    Log.flush();
     //print command:
     String temp_term2 = "";
     for (int i = 0; i < s_address_cmd_crc; i++){
       temp_term2 += String(address_cmd_crc[i], HEX);
       temp_term2 += " ";
     }
-    Serial.println(temp_term2);
-    Serial.flush();
+    Log.println(temp_term2);
+    Log.flush();
   #endif
   
   #ifdef HardSerial
@@ -376,7 +454,7 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
     while(ElCANSerial.available()){
       ElCANSerial.read();
     }
-    Serial.flush();
+    //Serial.flush();
   #endif
 
   //send:
@@ -437,21 +515,21 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
   //print received string:
   if(irec>0){
     #ifdef testmodeS
-      Serial.print("Received:  ");
+      Log.print("Received:  ");
       String temp_term1 = "";
       for (unsigned int i = 0; i < irec; i++){
         temp_term1 += String(response[i], HEX);
         temp_term1 += " ";
       }
-      Serial.print(temp_term1);
-      //Serial.print(" - ");
-      //Serial.print(millis()-startmillis);
-      Serial.print(" : ");
-      Serial.print(irec);
-      Serial.print(" < ");
-      Serial.print(//s_address_cmd_crc+
+      Log.print(temp_term1);
+      //Log.print(" - ");
+      //Log.print(millis()-startmillis);
+      Log.print(" : ");
+      Log.print(irec);
+      Log.print(" < ");
+      Log.print(//s_address_cmd_crc+
                     responseLength);
-      Serial.println("");
+      Log.println("");
     #endif
     if(irec==responseLength && responseLength>2){
       //check CRC
@@ -462,19 +540,19 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
         return 1;//OK
       }else{
         #ifdef testmodeS
-        Serial.print("Q: return -2;//crc error");
+          Log.print("Q: return -2;//crc error");
         #endif
         return -2;//crc error
       }
     }else{
       #ifdef testmodeS
-      Serial.print("Q: return -1;//incorrect length");
+      Log.print("Q: return -1;//incorrect length");
       #endif
       return -1;//incorrect length
     }
   }else{
       #ifdef testmodeS
-      Serial.print("Q: return 0;//no answear");
+      Log.print("Q: return 0;//no answear");
       #endif
       return 0;//no answear
   }
@@ -686,18 +764,25 @@ byte ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile 
 ///////////////////////////////////////////////////
 
 char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
-  // #ifdef testmodeS
-  // Serial.print("received CAN message: VPIN=");
-  // Serial.print(vPinNumber);
-  // Serial.print(" FloatValue=");
-  // Serial.print(vPinValueFloat);
-  // Serial.println();
-  // #endif
+  #ifdef testmodeS
+    Log.print("received CAN message: VPIN=");
+    Log.print(vPinNumber);
+    Log.print(" FloatValue=");
+    Log.print(vPinValueFloat);
+    Log.println();
+  #endif
   switch(vPinNumber){
     //case VPIN_HEATER_TRGSTATUS:{
     //} break;
-    case VPIN_ElMeter_EnergyKWh_cor:{
+    case VPIN_ElMeter_EnergyKWh_Reset:{
+      EnergyKWh_ResetValue = _pred_EnergyKWh;
+      EEPROM_storeValues();
+      Send2ServerElMeterData(1);
+    } break;
+    case VPIN_ElMeter_EnergyKWh_cor:{ 
       _corr_EnergyKWh = vPinValueFloat;
+      EEPROM_storeValues();
+      Send2ServerElMeterData(1);
     } break;
     case VPIN_ElMeter_EnergyKWh1_cor:{
       _corr_EnergyKWh1 = vPinValueFloat;
@@ -707,33 +792,46 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
     } break;
     default:{
       #ifdef testmodeS
-      Serial.print("! Warning: received unneeded CAN message: VPIN=");
-      Serial.print(vPinNumber);
-      Serial.print(" FloatValue=");
-      Serial.print(vPinValueFloat);
-      Serial.println();
+      Log.print("! Warning: received unneeded CAN message: VPIN=");
+      Log.print(vPinNumber);
+      Log.print(" FloatValue=");
+      Log.print(vPinValueFloat);
+      Log.println();
       #endif
       return 0;
     }
   }
   return 1;
 }
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString, byte dataLen){
+  return 0;
+}
 
+void turnOffRGB(){
+  //digitalWrite(LED_RED,   HIGH);
+  //digitalWrite(LED_GREEN, HIGH);
+  //digitalWrite(LED_BLUE,  HIGH); 
+}
 ////////////////////////////////////////////
-void Send2ServerElMeterData(){
+void Send2ServerElMeterDataCallback(){
+  Send2ServerElMeterData(0); 
+}
+void Send2ServerElMeterData(int forceSend){
   volatile byte res = 0;
-  volatile float EnergyKWh,EnergyKWh1,EnergyKWh2;
+  volatile float EnergyKWh=0,EnergyKWh1=0,EnergyKWh2=0;
   volatile float P1,P2,P3;
   volatile float V1,V2,V3;
   
-  digitalWrite(LED_BUILTIN,1);
-  delay(500);
-  digitalWrite(LED_BUILTIN,0);
-  delay(500);
+  #ifdef testmodeS2
+    digitalWrite(LED_BUILTIN,1);
+    delay(500);
+    digitalWrite(LED_BUILTIN,0);
+    delay(500);
+  #endif
   
   #ifdef testmodeS2
-    Serial.println("-Send2ServerElMeterData()-");
-  #endif //testmodeS
+    Log.println("-Send2ServerElMeterData()-");
+  #endif //testmodeS2
   
   //res = ElMeter_TestConnection();
   /*if(res<=0){
@@ -745,29 +843,46 @@ void Send2ServerElMeterData(){
 
   res = ElMeter_OpenUser(1);
   #ifdef testmodeS2
-    Serial.print("Open User1 = ");
-    Serial.println(res);
-  #endif //testmodeS
+    Log.print("Open User1 = ");
+    Log.println(res);
+  #endif //testmodeS2
 
-  res = ElMeter_GetEnergyA(&EnergyKWh,0);
+  /*res = ElMeter_GetEnergyA(&EnergyKWh,0);
   #ifdef testmodeS2
-    Serial.print("Wh: ");
-    Serial.print(res,3);
-  #endif //testmodeS
+    Log.print("Wh: ");
+    Log.print(res,3);
+  #endif //testmodeS2
   if(res==1){
+    digitalWrite(LED_RED,   HIGH);
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE,  LOW);
+    delay(100);
     #ifdef testmodeS2
-      Serial.print(" = ");
-      Serial.println(EnergyKWh,3);
-    #endif //testmodeS
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh + _corr_EnergyKWh);
-    if((millis()-pred_EnergyKWhmillis)>=360000L || pred_EnergyKWhmillis==0){
-      pred_EnergyKWhmillis = millis();
-      if(_pred_EnergyKWh!=0){
-        addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, (EnergyKWh - _pred_EnergyKWh)*10);
-      }
-      _pred_EnergyKWh = EnergyKWh;
+      Log.print(" = ");
+      Log.println(EnergyKWh,3);
+    #endif //testmodeS2
+    if( (millis()-pred_EnergyKWhmillis)>=360000L || pred_EnergyKWhmillis==0 || forceSend==1){
+      digitalWrite(LED_RED,   HIGH);
+      digitalWrite(LED_GREEN, LOW);
+      digitalWrite(LED_BLUE,  HIGH);
+      //delay(1000);
+      //not too often:
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh, EnergyKWh);// - _corr_EnergyKWh); 
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh_Accumulated, EnergyKWh - EnergyKWh_ResetValue);
+      
+      //if(forceSend==0){
+        pred_EnergyKWhmillis = millis();
+        if(_pred_EnergyKWh!=0){
+          addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, (EnergyKWh - _pred_EnergyKWh)*10);
+        }
+        _pred_EnergyKWh = EnergyKWh;
+      //}
     }
   }else{
+    digitalWrite(LED_RED,   LOW);
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE,  HIGH);
+    //delay(1000);
 
     if((millis()-pred_EnergyKWhmillis)>=360000L || pred_EnergyKWhmillis==0){
       pred_EnergyKWhmillis = millis();
@@ -775,60 +890,63 @@ void Send2ServerElMeterData(){
     }
 
     #ifdef testmodeS2
-    Serial.println();
+    Log.println();
     #endif
     //return;
   }
-
+  timer.setTimeout(200,turnOffRGB);
+  */
   /*
   res = ElMeter_GetEnergyA(&EnergyKWh1,1);
   #ifdef testmodeS2
-    Serial.print("Wh1: ");
-    Serial.print(res,3);
+    Log.print("Wh1: ");
+    Log.print(res,3);
   #endif //testmodeS
   if(res==1){
     #ifdef testmodeS2
-      Serial.print(" = ");
-      Serial.println(EnergyKWh1,3);
+      Log.print(" = ");
+      Log.println(EnergyKWh1,3);
     #endif //testmodeS
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh1, EnergyKWh1 + _corr_EnergyKWh1);
   }else{
-    Serial.println();
+    Log.println();
     return;
   }
   res = ElMeter_GetEnergyA(&EnergyKWh2,2);
   #ifdef testmodeS2
-    Serial.print("Wh2: ");
-    Serial.print(res,3);
+    Log.print("Wh2: ");
+    Log.print(res,3);
   #endif //testmodeS
   if(res==1){
     #ifdef testmodeS2
-      Serial.print(" = ");
-      Serial.println(EnergyKWh2,3);
+      Log.print(" = ");
+      Log.println(EnergyKWh2,3);
     #endif //testmodeS
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWh2, EnergyKWh2 + _corr_EnergyKWh2);
   }else{
-    Serial.println();
+    Log.println();
     return;
   } */
   
   res = ElMeter_GetInstantPower(&P1,&P2,&P3);
   #ifdef testmodeS2
-    Serial.print("Power: ");
-    Serial.print(res);
-    Serial.print("; 1= ");
-    Serial.print(P1,3);
-    Serial.print(" 2= ");
-    Serial.print(P2,3);
-    Serial.print(" 3= ");
-    Serial.println(P3,3);
+    Log.print("Power: ");
+    Log.print(res);
+    Log.print("; 1= ");
+    Log.print(P1,3);
+    Log.print(" 2= ");
+    Log.print(P2,3);
+    Log.print(" 3= ");
+    Log.println(P3,3);
   #endif //testmodeS
   if(res==1){
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, fround((P1+P2+P3)/1000.0f,1));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, fround(P1,0));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, fround(P2,0));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, fround(P3,0));
   }else{
     //send zero - to unblock heating (just in case)
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_EnergyKWhDelta, 0);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P1, 0);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P2, 0);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_P3, 0);
@@ -837,14 +955,14 @@ void Send2ServerElMeterData(){
   
   res = ElMeter_GetInstantVoltage(&V1,&V2,&V3);
   #ifdef testmodeS2
-    Serial.print("Voltage: ");
-    Serial.print(res);
-    Serial.print("; 1= ");
-    Serial.print(V1);
-    Serial.print(" 2= ");
-    Serial.print(V2);
-    Serial.print(" 3= ");
-    Serial.println(V3);
+    Log.print("Voltage: ");
+    Log.print(res);
+    Log.print("; 1= ");
+    Log.print(V1);
+    Log.print(" 2= ");
+    Log.print(V2);
+    Log.print(" 3= ");
+    Log.println(V3);
   #endif //testmodeS
   if(res==1){
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_V1, fround(V1,0));
@@ -859,6 +977,8 @@ void Send2ServerElMeterData(){
     //fround( , 1)
   //}
 }
+
+
 
 
 

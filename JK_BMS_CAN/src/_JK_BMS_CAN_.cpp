@@ -98,9 +98,45 @@
  */
 
 #include <Arduino.h>
-
 // For full revision history see https://github.com/ArminJo/JK-BMSToPylontechCAN?tab=readme-ov-file#revision-history
-#define VERSION_EXAMPLE "3.2.1"
+#define VERSION_EXAMPLE "3.2.1_nik"
+
+#define CAN_PIN_INT 9
+#define CAN_PIN_CS  10 
+
+#include <NIK_defs.h>
+#include <NIK_can.h>
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+int mainTimerId;
+int eepromVIAddr=1000,eepromValueIs=7510+0; //if this is in eeprom, then we got valid values, not junk
+int MainCycleInterval=6; //seconds
+
+#define LED_WS2812_PIN 3 
+#define NUMWSLEDS 16     
+#include <microLED.h>   
+microLED <NUMWSLEDS, LED_WS2812_PIN, MLED_NO_CLOCK, LED_WS2812, ORDER_GRB> LED_WS2812_strip;
+int LED_WS_count=0;
+mData LED_WS_color;
+
+void LED_WS2812_Update(){ //once in a second
+    LED_WS2812_strip.setBrightness(30); //gluchilo - maybe helps
+    LED_WS2812_strip.clear();
+    if(LED_WS_count == -1){
+        LED_WS2812_strip.fill(5,6,LED_WS_color); //light 2 middle leds
+    }else{
+        LED_WS2812_strip.fill(0,LED_WS_count-1,LED_WS_color);
+    }
+    /*if(LED_WS_state1==0){
+        LED_WS_state1=1;
+        LED_WS2812_strip.leds[LED_WS_pos] = mWhite;
+    }else{
+        LED_WS_state1=0;
+        LED_WS2812_strip.leds[LED_WS_pos] = mBlue;
+    }*/
+    LED_WS2812_strip.show();
+}
 
 /*
  * If battery SOC is below this value, the inverter is forced to charge the battery from any available power source regardless of inverter settings.
@@ -274,7 +310,7 @@ char sStringBuffer[40];                 // for "Store computed capacity" line, p
 #   define SECONDS_BETWEEN_CAN_FRAME_SEND                  "1" // Only for display on LCD
 #else
 #   define MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS     2000
-#   define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             2000
+#   define MILLISECONDS_BETWEEN_CAN_FRAME_SEND             1000  //nik for !!!!! MUSTEK !!!!! (not 2 sec!but 1 sec)
 #   define SECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS          "2" // Only for display on LCD
 #   define SECONDS_BETWEEN_CAN_FRAME_SEND                  "2" // Only for display on LCD
 #endif
@@ -372,6 +408,7 @@ bool sTimeoutJustdetected = false;          // Is set to true at first detection
 #include "MCP2515_TX.hpp"                   // my reduced tx only driver
 bool sCANDataIsInitialized = false;         // One time flag, it is never set to false again.
 uint32_t sMillisOfLastCANFrameSent = 0;     // For CAN timing
+uint32_t sMillisOfLastCANFrameSent_nik = 0;     // For CAN timing (to BLYNK)
 
 /*
  * Optional analytics stuff
@@ -388,6 +425,7 @@ uint32_t sMillisOfLastCANFrameSent = 0;     // For CAN timing
 #endif
 
 bool sBMSFrameProcessingComplete = false; // True if one status frame was received and processed or timeout happened. Then we can do a sleep at the end of the loop.
+bool WeGotNewBMSDataForBLYNK = false; //independent send timing for nik's BLYNK
 
 /*
  * Miscellaneous
@@ -417,71 +455,206 @@ void handleOvervoltage();
 
 const char StringStartingCANFailed[] PROGMEM = "Starting CAN failed!";
 
+void MainCycle_StartEvent(){
+  #ifdef testmode
+		Serial.print("----------V = ");
+		Serial.print(fround(voltageV,2));
+    Serial.print("   -------A = ");
+		Serial.println(fround(currentA,2));
+  #endif
+  /*
+  long curTime = millis();
+  if(firstSend){
+    firstSend = 0;
+    lastSendTime = curTime;
+    BAT_EnergyWH += SumDeltaWs/3600;
+    SumDeltaWs = 0;
+  }else{
+    BAT_CurPowerW = SumDeltaWs / (curTime-lastSendTime)*1000; //average
+    lastSendTime = curTime;
+    BAT_EnergyWH += SumDeltaWs/3600;
+    SumDeltaWs = 0;
+    BAT_EnergyPercent = BAT_MaxEnergyWH==0 ? 0 : (BAT_EnergyWH / BAT_MaxEnergyWH * 100.0f);
+
+    //calculate average V:
+    VArSumTotal = 0;
+    for(byte ii=0; ii<VArNumReadings; ii++){
+      VArSumTotal += VArReadings[ii];
+    }
+    AverageV = VArSumTotal / VArNumReadings;
+
+    ////addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(voltageV,2));
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(AverageV,2)); 
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterA,fround(currentA,2));
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_CurPowerW,fround(BAT_CurPowerW,0));
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_EnergyPercent,fround(BAT_EnergyPercent,1));
+  }*/
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(JKComputedData.BatteryVoltage10Millivolt/100.0f,2)); 
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterA,fround(JKComputedData.Battery10MilliAmpere/100.0f,2));
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_CurPowerW,fround(BAT_CurPowerW,0));
+    //addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_EnergyPercent,fround(sJKFAllReplyPointer->SOCPercent,1));
+}
+
+char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
+  //digitalWrite(13,HIGH);
+  //delay(50);
+  //digitalWrite(13,LOW);
+
+	switch(vPinNumber){
+		case VPIN_STATUS:
+			boardSTATUS = (int)vPinValueFloat;
+			EEPROM_storeValues();
+			break;
+		case VPIN_BAT_SendIntervalSec:
+			if(MainCycleInterval == (int)vPinValueFloat || (int)(vPinValueFloat)<2)
+				break;
+			MainCycleInterval = (int)vPinValueFloat;
+			timer.deleteTimer(mainTimerId);
+			mainTimerId = timer.setInterval(1000L * MainCycleInterval, MainCycle_StartEvent); //start regularly
+			EEPROM_storeValues();
+			break;
+	
+	    default:
+			return 0;
+	}
+	return 1;
+}
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* vPinString, byte dataLen){
+  return 0;
+}
+
+void EEPROM_storeValues(){
+  EEPROM_WriteAnything(eepromVIAddr,eepromValueIs);
+  
+  EEPROM.update(0,(unsigned char)boardSTATUS);
+  EEPROM.update(10,(unsigned char)(MainCycleInterval));
+
+  //EEPROM_WriteAnything(VPIN_BAT_EnergyWH                ,(float)BAT_EnergyWH);
+  //EEPROM_WriteAnything(VPIN_BAT_EnergyWH+sizeof(float)*1,(float)BAT_MaxEnergyWH);
+  //EEPROM_WriteAnything(VPIN_BAT_EnergyWH+sizeof(float)*2,(float)BAT_EnergyPercent);
+}
+void EEPROM_restoreValues(){
+  int ival;
+  EEPROM_ReadAnything(eepromVIAddr,ival);
+  if(ival != eepromValueIs){
+    EEPROM_storeValues();
+    return; //never wrote valid values into eeprom
+  }
+
+  boardSTATUS = EEPROM.read(0);
+  
+  int aNewInterval = EEPROM.read(10);
+  if(aNewInterval >=2){
+    MainCycleInterval = aNewInterval;
+  }
+  
+ // EEPROM_ReadAnything(VPIN_BAT_EnergyWH                ,BAT_EnergyWH);
+  //EEPROM_ReadAnything(VPIN_BAT_EnergyWH+sizeof(float)*1,BAT_MaxEnergyWH);
+ // EEPROM_ReadAnything(VPIN_BAT_EnergyWH+sizeof(float)*2,BAT_EnergyPercent);
+}
+
 void setup() {
 // LED_BUILTIN pin is used as SPI Clock !!!
 //    pinModeFast(LED_BUILTIN, OUTPUT);
 //    digitalWriteFast(LED_BUILTIN, LOW);
+    LED_WS2812_strip.setBrightness(30);
+    timer.setInterval(1000L, LED_WS2812_Update);
 
-#if !defined(USE_NO_COMMUNICATION_STATUS_LEDS)
+    EEPROM_restoreValues();
+    //timer.setInterval(1000L*3600L, EEPROM_storeValues); //once in 1h remember critical values
+    // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
+    if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+        ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
+    else
+    {  
+            #ifdef testmode
+            Serial.println("Error Initializing CAN bus driver MCP2515...");
+            #endif
+        }
+
+    //initialize filters Masks(0-1),Filters(0-5):
+    unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
+    unsigned long filt = (0x0100L | CAN_Unit_FILTER_BatMo)<<16;	//0x04	0x01040000;
+    //first mask:   ID=0x100 - receive sent to all 0x100
+    CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+    CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
+    CAN0.init_Filt(1,0,0x01000000);                // Init second filter...
+    //second mask:  ID=0x010F - receive only sent to our unit
+    CAN0.init_Mask(1,0,mask);                // Init second mask...
+    CAN0.init_Filt(2,0,filt);                // Init third filter...
+    CAN0.init_Filt(3,0,filt);                // Init fouth filter...
+    CAN0.init_Filt(4,0,filt);                // Init fifth filter...
+    CAN0.init_Filt(5,0,filt);                // Init sixth filter...
+
+    //#ifdef testmode
+        //CAN0.setMode(MCP_LOOPBACK);
+        //#endif
+        //#ifndef testmode
+    CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data.
+        //#endif
+    pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
+
+
+    #if !defined(USE_NO_COMMUNICATION_STATUS_LEDS)
     pinModeFast(BMS_COMMUNICATION_STATUS_LED_PIN, OUTPUT);
     pinModeFast(CAN_COMMUNICATION_STATUS_LED_PIN, OUTPUT);
-#endif
+    #endif
 
-#if !defined(NO_ANALYTICS)
+    #if !defined(NO_ANALYTICS)
     pinModeFast(DISABLE_ESR_IN_GRAPH_OUTPUT_PIN, INPUT_PULLUP);
-#endif
+    #endif
 
     Serial.begin(115200);
     while (!Serial)
         ; // Wait for Serial to become available. Is optimized away for some cores.
 
-#if defined(__AVR_ATmega32U4__) || defined(SERIAL_PORT_USBVIRTUAL) || defined(SERIAL_USB) /*stm32duino*/|| defined(USBCON) /*STM32_stm32*/ \
+    #if defined(__AVR_ATmega32U4__) || defined(SERIAL_PORT_USBVIRTUAL) || defined(SERIAL_USB) /*stm32duino*/|| defined(USBCON) /*STM32_stm32*/ \
     || defined(SERIALUSB_PID)  || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_attiny3217)
-delay(4000); // To be able to connect Serial monitor after reset or power up and before first print out. Do not wait for an attached Serial Monitor!
-#endif
+    delay(4000); // To be able to connect Serial monitor after reset or power up and before first print out. Do not wait for an attached Serial Monitor!
+    #endif
     // Just to know which program is running on my Arduino
     Serial.println(F("START " __FILE__ "\r\nVersion " VERSION_EXAMPLE " from " __DATE__));
 
-#if defined(USE_LAYOUT_FOR_644_BOARD)
+    #if defined(USE_LAYOUT_FOR_644_BOARD)
     JK_INFO_PRINTLN(F("Settings are for Andres 644 board"));
-#endif
+    #endif
 
-#if defined(ENABLE_MONITORING)
+    #if defined(ENABLE_MONITORING)
     JK_INFO_PRINTLN(F("Monitoring enabled"));
-#else
+    #else
     JK_INFO_PRINTLN(F("Monitoring disabled"));
-#endif
+    #endif
 
-#if defined(NO_CELL_STATISTICS)
+    #if defined(NO_CELL_STATISTICS)
     JK_INFO_PRINTLN(F("Cell statistics deactivated"));
-#else
+    #else
     JK_INFO_PRINTLN(F("Cell statistics activated"));
-#endif
+    #endif
 
-#if defined(NO_ANALYTICS)
+    #if defined(NO_ANALYTICS)
     JK_INFO_PRINTLN(F("Analytics deactivated"));
-#else
+    #else
     JK_INFO_PRINTLN(F("Analytics activated"));
     readBatteryESRfromEEPROM();
     JK_INFO_PRINT(F("EEPROM BatteryESR="));
     JK_INFO_PRINTLN(sBatteryESRMilliohm);
 
     findFirstSOCDataPointIndex();
-#if defined(USE_LAYOUT_FOR_644_BOARD)
+    #if defined(USE_LAYOUT_FOR_644_BOARD)
     JK_INFO_PRINT(F("EEPROM SOC data start index="));
     JK_INFO_PRINT(SOCDataPointsInfo.ArrayStartIndex);
     JK_INFO_PRINT(F(" length="));
     JK_INFO_PRINT(SOCDataPointsInfo.ArrayLength);
     JK_INFO_PRINT(F(", even="));
     JK_INFO_PRINTLN(SOCDataPointsInfo.currentlyWritingOnAnEvenPage);
-#else
+    #else
     DEBUG_PRINT(F("EEPROM SOC data start index="));
     DEBUG_PRINT(SOCDataPointsInfo.ArrayStartIndex);
     DEBUG_PRINT(F(" length="));
     DEBUG_PRINT(SOCDataPointsInfo.ArrayLength);
     DEBUG_PRINT(F(", even="));
     DEBUG_PRINTLN(SOCDataPointsInfo.currentlyWritingOnAnEvenPage);
-#endif
+    #endif
     JK_INFO_PRINTLN(F("Disable ESR compensation pin=" STR(DISABLE_ESR_IN_GRAPH_OUTPUT_PIN)));
     JK_INFO_PRINT(F("Battery ESR compensation for voltage "));
     if (digitalReadFast(DISABLE_ESR_IN_GRAPH_OUTPUT_PIN) == LOW) {
@@ -492,122 +665,121 @@ delay(4000); // To be able to connect Serial monitor after reset or power up and
     JK_INFO_PRINT(F("abled. Specified ESR="));
     JK_INFO_PRINT(sBatteryESRMilliohm);
     JK_INFO_PRINTLN(F("mOhm"));
-#endif
+    #endif
 
     tone(BUZZER_PIN, 3000, 100);
 
-#if defined(USE_SERIAL_2004_LCD)
+    #if defined(USE_SERIAL_2004_LCD)
     setupLCD();
-#else
+    #else
     JK_INFO_PRINTLN(F("LCD code deactivated"));
-#endif
+    #endif
 
     /*
      * 115200 baud soft serial to JK-BMS. For serial from BMS we use the hardware Serial RX.
      */
     TxToJKBMS.begin(115200);
     Serial.println(F("Serial to JK-BMS started with 115.200 kbit/s!"));
-#if defined(USE_SERIAL_2004_LCD)
+    #if defined(USE_SERIAL_2004_LCD)
     if (sSerialLCDAvailable) {
         myLCD.setCursor(0, 2);
         myLCD.print(F("BMS serial started"));
     }
-#endif
+    #endif
 
     /*
      * CAN initialization
      */
     if (initializeCAN(CAN_BAUDRATE, MHZ_OF_CRYSTAL_ASSEMBLED_ON_CAN_MODULE, &Serial) == MCP2515_RETURN_OK) { // Resets the device and start the CAN bus at 500 kbps
         Serial.println(F("CAN started with 500 kbit/s!"));
-#if defined(USE_SERIAL_2004_LCD)
+    #if defined(USE_SERIAL_2004_LCD)
         if (sSerialLCDAvailable) {
             myLCD.setCursor(0, 3);
             myLCD.print(F("CAN started"));
             delay(2 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
         }
-#endif
+    #endif
     } else {
         Serial.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
         Serial.println(SPI_CS_PIN);
-#if defined(USE_SERIAL_2004_LCD)
+    #if defined(USE_SERIAL_2004_LCD)
         if (sSerialLCDAvailable) {
             myLCD.setCursor(0, 3);
             myLCD.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
-#  if defined(STANDALONE_TEST)
+    #  if defined(STANDALONE_TEST)
             delay(LCD_MESSAGE_PERSIST_TIME_MILLIS);
-#  else
+    #  else
             delay(4 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
-#  endif
+    #  endif
         }
-#endif
+    #endif
 
     }
 
     /*
      * Print debug pin info
      */
-#if defined(USE_SERIAL_2004_LCD)
-    Serial.println(F("Page switching button is at pin " STR(PAGE_BUTTON_PIN)));
-    Serial.println(F("At long press, CAN Info page is entered and additional debug data is printed as long as button is pressed"));
-#else
-    Serial.println(F("Debug button is at pin " STR(PAGE_BUTTON_PIN)));
-    Serial.println(F("Additional debug data is printed as long as button is pressed"));
-#endif
+    #if defined(USE_SERIAL_2004_LCD)
+        Serial.println(F("Page switching button is at pin " STR(PAGE_BUTTON_PIN)));
+        Serial.println(F("At long press, CAN Info page is entered and additional debug data is printed as long as button is pressed"));
+    #else
+        Serial.println(F("Debug button is at pin " STR(PAGE_BUTTON_PIN)));
+        Serial.println(F("Additional debug data is printed as long as button is pressed"));
+    #endif
     Serial.println(F(STR(MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS) " ms between 2 BMS requests"));
     Serial.println(F(STR(MILLISECONDS_BETWEEN_CAN_FRAME_SEND) " ms between 2 CAN transmissions"));
-#if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
-    Serial.println(F("LCD Backlight timeout is " DISPLAY_ON_TIME_STRING));
-#else
-    Serial.println(F("No LCD Backlight timeout"));
-#endif
+    #if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
+        Serial.println(F("LCD Backlight timeout is " DISPLAY_ON_TIME_STRING));
+    #else
+        Serial.println(F("No LCD Backlight timeout"));
+    #endif
     Serial.println();
 
-#if defined(USE_SERIAL_2004_LCD)
-    printDebugInfoOnLCD();
-#endif
+    #if defined(USE_SERIAL_2004_LCD)
+        printDebugInfoOnLCD();
+    #endif
 
 }
 
 void loop() {
-/*delay(1000);
- if (initializeCAN(CAN_BAUDRATE, MHZ_OF_CRYSTAL_ASSEMBLED_ON_CAN_MODULE, &Serial) == MCP2515_RETURN_OK) { // Resets the device and start the CAN bus at 500 kbps
-        Serial.println(F("CAN started with 500 kbit/s!"));
-#if defined(USE_SERIAL_2004_LCD)
-        if (sSerialLCDAvailable) {
-            myLCD.setCursor(0, 3);
-            myLCD.print(F("CAN started"));
-            delay(2 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
-        }
-#endif
-    } else {
-        Serial.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
-        Serial.println(SPI_CS_PIN);
-#if defined(USE_SERIAL_2004_LCD)
-        if (sSerialLCDAvailable) {
-            myLCD.setCursor(0, 3);
-            myLCD.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
-#  if defined(STANDALONE_TEST)
-            delay(LCD_MESSAGE_PERSIST_TIME_MILLIS);
-#  else
-            delay(4 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
-#  endif
-        }
-#endif
+    /*delay(1000);
+    if (initializeCAN(CAN_BAUDRATE, MHZ_OF_CRYSTAL_ASSEMBLED_ON_CAN_MODULE, &Serial) == MCP2515_RETURN_OK) { // Resets the device and start the CAN bus at 500 kbps
+            Serial.println(F("CAN started with 500 kbit/s!"));
+    #if defined(USE_SERIAL_2004_LCD)
+            if (sSerialLCDAvailable) {
+                myLCD.setCursor(0, 3);
+                myLCD.print(F("CAN started"));
+                delay(2 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
+            }
+    #endif
+        } else {
+            Serial.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+            Serial.println(SPI_CS_PIN);
+    #if defined(USE_SERIAL_2004_LCD)
+            if (sSerialLCDAvailable) {
+                myLCD.setCursor(0, 3);
+                myLCD.print(reinterpret_cast<const __FlashStringHelper*>(StringStartingCANFailed));
+    #  if defined(STANDALONE_TEST)
+                delay(LCD_MESSAGE_PERSIST_TIME_MILLIS);
+    #  else
+                delay(4 * LCD_MESSAGE_PERSIST_TIME_MILLIS); // To see the info
+    #  endif
+            }
+    #endif
 
-    }
+        }
 
-    return;*/
+        return;*/
+
+    timer.run();
+    checkReadCAN();
     
-    checkButtonPress();
+    //checkButtonPress();
 
-    /*
-     * Request status frame every 2 seconds
-     */
+    //Request status frame every 2 seconds from BMS
     if (millis() - sMillisOfLastRequestedJKDataFrame >= MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS) {
         sMillisOfLastRequestedJKDataFrame = millis(); // set for next check
-        /*
-         * Flush input buffer and send request to JK-BMS
-         */
+        //Flush input buffer and send request to JK-BMS
         while (Serial.available()) {
             Serial.read();
         }
@@ -617,33 +789,27 @@ void loop() {
         sMillisOfLastReceivedByte = millis(); // initialize reply timeout
     }
 
-    /*
-     * Get reply from BMS and check timeout
-     */
+    //Get reply from BMS and check timeout
     if (sResponseFrameBytesAreExpected) {
         if (Serial.available()) {
-            TURN_BMS_STATUS_LED_ON;
+            //TURN_BMS_STATUS_LED_ON;
             if (readJK_BMSStatusFrame()) {
-                /*
-                 * Frame completely received, now process it
-                 */
+                //Frame completely received, now process it
                 sBMSFrameProcessingComplete = true;
+                WeGotNewBMSDataForBLYNK = true;
+
                 TURN_BMS_STATUS_LED_ON;
                 processJK_BMSStatusFrame(); // Process the complete receiving of the status frame and set the appropriate flags
                 TURN_BMS_STATUS_LED_OFF;
             }
-            TURN_BMS_STATUS_LED_OFF;
+            //TURN_BMS_STATUS_LED_OFF;
         } else if (millis() - sMillisOfLastReceivedByte >= TIMEOUT_MILLIS_FOR_FRAME_REPLY) {
-            /*
-             * Here we have requested response frame, but serial was not available fore a longer time => timeout at receiving
-             */
+            //Here we have requested response frame, but serial was not available fore a longer time => timeout at receiving
             sBMSFrameProcessingComplete = true; // Do frame complete handling like beep anyway
             sResponseFrameBytesAreExpected = false; // Do not try to receive more response bytes
 
             if (!sJKBMSFrameHasTimeout) {
-                /*
-                 * Do this only once per timeout
-                 */
+                //Do this only once per timeout
                 sJKBMSFrameHasTimeout = true;
                 sTimeoutJustdetected = true; // This forces the beep
                 handleFrameReceiveTimeout();
@@ -651,21 +817,20 @@ void loop() {
         }
     }
 
-    /*
-     * Send CAN frame independently of the period of JK-BMS data requests,
+    /*Send CAN frame independently of the period of JK-BMS data requests,
      * but do not send, if frame is currently requested and not completely received and processed.
      * 0.5 MB/s
      * Inverter reply every second: 0x305: 00-00-00-00-00-00-00-00
      * Do not send, if BMS is starting up, the 0% SOC during this time will trigger a deye error beep.
      */
-#if defined(TRACE)
+    #if defined(TRACE)
     Serial.print(F("sCANDataIsInitialized="));
     Serial.print(sCANDataIsInitialized);
     Serial.print(F(" BMSIsStarting="));
     Serial.print(JKComputedData.BMSIsStarting);
     Serial.print(F(", sResponseFrameBytesAreExpected="));
     Serial.println(sResponseFrameBytesAreExpected);
-#endif
+    #endif
     if (sCANDataIsInitialized && !JKComputedData.BMSIsStarting && !sResponseFrameBytesAreExpected
             && millis() - sMillisOfLastCANFrameSent >= MILLISECONDS_BETWEEN_CAN_FRAME_SEND) {
         sMillisOfLastCANFrameSent = millis();
@@ -678,6 +843,31 @@ void loop() {
         TURN_CAN_STATUS_LED_OFF;
     }
 
+    //nik:
+    if (sCANDataIsInitialized 
+            && WeGotNewBMSDataForBLYNK
+            && !JKComputedData.BMSIsStarting 
+            && !sResponseFrameBytesAreExpected
+            && millis() - sMillisOfLastCANFrameSent_nik >= (uint32_t)MainCycleInterval*1000L) {
+        sMillisOfLastCANFrameSent_nik = millis();
+
+        //TURN_CAN_STATUS_LED_ON;
+        if (sDebugModeActivated) {
+            Serial.println(F("Send CAN (BLYNK)"));
+        }
+        
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterV,fround(JKComputedData.BatteryVoltageFloat,2)); 
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_VoltmeterA,fround(JKComputedData.BatteryLoadCurrentFloat,2));
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_CurPowerW,fround(JKComputedData.BatteryLoadPower,0));
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_EnergyPercent,fround(sJKFAllReplyPointer->SOCPercent,0));
+
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_DeltaCellmV,fround((float)JKConvertedCellInfo.DeltaCellMillivolt,0));
+        addCANMessage2Queue(CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BAT_MaxTemperature,fround(JKComputedData.TemperatureMaximum,0));
+
+        WeGotNewBMSDataForBLYNK = false;
+        //TURN_CAN_STATUS_LED_OFF;
+    }
+        
     /**********************************************************
      * Do this once after each complete status frame or timeout
      **********************************************************/
@@ -691,45 +881,41 @@ void loop() {
             handleOvervoltage();
         }
 
-#if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
+        #if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
         if (sSerialLCDAvailable) {
             doLCDBacklightTimeoutHandling();
         }
-#endif
+        #endif
 
-        /*
-         * Check for BMS alarm flags
-         */
+        //Check for BMS alarm flags
         if (sAlarmJustGetsActive || sTimeoutJustdetected) {
             sDoAlarmOrTimeoutBeep = true;
-#if defined(MULTIPLE_BEEPS_WITH_TIMEOUT)
+        #if defined(MULTIPLE_BEEPS_WITH_TIMEOUT)
         } else {
             sBeepTimeoutCounter = 0;
-#endif
+        #endif
         }
 
-        /*
-         * Alarm / beep handling
-         */
-#if !defined(NO_BEEP_ON_ERROR)      // Beep enabled
+        //Alarm / beep handling
+        #if !defined(NO_BEEP_ON_ERROR)      // Beep enabled
 
-#  if defined(ONE_BEEP_ON_ERROR)    // Beep once
+        #  if defined(ONE_BEEP_ON_ERROR)    // Beep once
         if (sDoAlarmOrTimeoutBeep) {
             sAlarmJustGetsActive = false; // disable further alarm beeps
             sTimeoutJustdetected = false; // disable further timeout beeps
         }
-#  endif
+        #  endif
 
         if (sDoAlarmOrTimeoutBeep) {
             sDoAlarmOrTimeoutBeep = false;
-#  if defined(MULTIPLE_BEEPS_WITH_TIMEOUT) // Beep one minute
+        #  if defined(MULTIPLE_BEEPS_WITH_TIMEOUT) // Beep one minute
             sBeepTimeoutCounter++; // incremented at each frame request
             if (sBeepTimeoutCounter == (BEEP_TIMEOUT_SECONDS * 1000U) / MILLISECONDS_BETWEEN_JK_DATA_FRAME_REQUESTS) {
                 JK_INFO_PRINTLN(F("Timeout reached, suppress consecutive error beeps"));
                 sAlarmJustGetsActive = false; // disable further alarm beeps
                 sTimeoutJustdetected = false; // disable further timeout beeps
             } else
-#  endif
+        #  endif
             {
                 tone(BUZZER_PIN, 2200);
                 tone(BUZZER_PIN, 2200, 50);
@@ -738,21 +924,33 @@ void loop() {
                 delay(200); // to avoid tone interrupts waking us up from sleep
             }
         }
-#endif // NO_BEEP_ON_ERROR
+        #endif // NO_BEEP_ON_ERROR
 
         sBMSFrameProcessingComplete = false; // prepare for next loop
 
+        ///////////////////////////////////////show SOC and Voltage by WS2812 LEDs///////////////////////
+        if(!sJKBMSFrameHasTimeout){
+            float showPercent = sJKFAllReplyPointer->SOCPercent;
+            float showVoltage = JKComputedData.BatteryVoltageFloat-25.0f; //min 25 max 27.6
+            if(showVoltage<0.0f){ 
+                showVoltage=0.0f; 
+            }else{
+                if(showVoltage>2.6f)
+                    showVoltage=2.6f;
+            }
+            LED_WS_count = fround( 16.0f*(showPercent/100.0f) ,0);
+            LED_WS_color = mWheel8(fround( 255.0f*showVoltage/2.6f ,0)); //rainbow colors 0..255
+        }else{
+            LED_WS_count = -1;
+            LED_WS_color = mMagenta;
+        }
     } // if (sBMSFrameProcessingComplete)
 }
 
-/*
- * Process the complete receiving of the status frame and set the appropriate flags
- */
+//Process the complete receiving of the status frame and set the appropriate flags
 void processJK_BMSStatusFrame() {
     if (sDebugModeActivated) {
-        /*
-         * Do it once at every debug start
-         */
+        //Do it once at every debug start
         if (sReplyFrameBufferIndex == 0) {
             Serial.println(F("sReplyFrameBufferIndex is 0"));
         } else {
@@ -767,45 +965,39 @@ void processJK_BMSStatusFrame() {
         // First response frame after timeout :-)
         sJKBMSFrameHasTimeout = false;
         sTimeoutJustdetected = false;
-#if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
+        #if defined(USE_SERIAL_2004_LCD) && !defined(DISPLAY_ALWAYS_ON)
         checkAndTurnLCDOn(); // Reason is printed anyway :-)
-#endif
+        #endif
         JK_INFO_PRINTLN(F("Successfully receiving first BMS status frame after BMS communication timeout"));
     }
     processReceivedData();
 
     if (!sInitialActionsPerformed) {
-        /*
-         * Do initialization once here
-         */
+        //Do initialization once here
         sInitialActionsPerformed = true;
         initializeComputedData();
         Serial.println();
         printJKStaticInfo();
-#if !defined(NO_ANALYTICS)
+        #if !defined(NO_ANALYTICS)
         initializeAnalytics();
         JK_INFO_PRINTLN();
-#endif
+        #endif
     }
 
     printReceivedData();
-#if !defined(NO_ANALYTICS)
+    #if !defined(NO_ANALYTICS)
     writeSOCData();
-#endif
-    /*
-     * Copy complete reply and computed values for change determination
-     */
+    #endif
+    //Copy complete reply and computed values for change determination
     lastJKReply.SOCPercent = sJKFAllReplyPointer->SOCPercent;
     lastJKReply.AlarmUnion.AlarmsAsWord = sJKFAllReplyPointer->AlarmUnion.AlarmsAsWord;
     lastJKReply.BMSStatus.StatusAsWord = sJKFAllReplyPointer->BMSStatus.StatusAsWord;
     lastJKReply.SystemWorkingMinutes = sJKFAllReplyPointer->SystemWorkingMinutes;
 }
 
-/*
- * Reads all bytes of the requested frame into buffer and prints errors
- * Sets sResponseFrameBytesAreExpected to false, if frame was complete and manages other flags too
- * @return true if frame was completely received
- */
+//Reads all bytes of the requested frame into buffer and prints errors
+//Sets sResponseFrameBytesAreExpected to false, if frame was complete and manages other flags too
+//@return true if frame was completely received
 bool readJK_BMSStatusFrame() {
     sMillisOfLastReceivedByte = millis();
     uint8_t tReceiveResultCode = readJK_BMSStatusFrameByte();
@@ -866,17 +1058,13 @@ void handleFrameReceiveTimeout() {
 }
 
 void processReceivedData() {
-    /*
-     * Set the static pointer to the start of the reply data which depends on the number of cell voltage entries
-     * The JKFrameAllDataStruct starts behind the header + cell data header 0x79 + CellInfoSize + the variable length cell data 3 bytes per cell, (CellInfoSize is contained in JKReplyFrameBuffer[12])
-     */
+    //Set the static pointer to the start of the reply data which depends on the number of cell voltage entries
+    //The JKFrameAllDataStruct starts behind the header + cell data header 0x79 + CellInfoSize + the variable length cell data 3 bytes per cell, (CellInfoSize is contained in JKReplyFrameBuffer[12])
     sJKFAllReplyPointer = reinterpret_cast<JKReplyStruct*>(&JKReplyFrameBuffer[JK_BMS_FRAME_HEADER_LENGTH + 2
             + JKReplyFrameBuffer[JK_BMS_FRAME_INDEX_OF_CELL_INFO_LENGTH]]);
 
     fillJKConvertedCellInfo();
-    /*
-     * Print newline, if SOC changed
-     */
+    //Print newline, if SOC changed
     if (sJKFAllReplyPointer->SOCPercent != lastJKReply.SOCPercent) {
         Serial.println();
     }
@@ -924,32 +1112,34 @@ void checkButtonPress() {
      */
     if (sPageButtonJustPressed) {
         sPageButtonJustPressed = false;
-        sDebugModeActivated = true; // Is set to false in loop
+    //nik: no debug
+    //    sDebugModeActivated = true; // Is set to false in loop
         Serial.println(F("One time debug print just activated"));
     } else if (PageSwitchButtonAtPin2.readDebouncedButtonState()) {
         // Button is still pressed
-        sDebugModeActivated = true; // Is set to false in loop
+    //nik: no debug
+    //    sDebugModeActivated = true; // Is set to false in loop
     }
 #endif // defined(USE_SERIAL_2004_LCD)
 }
 
 void handleOvervoltage() {
-#if defined(USE_SERIAL_2004_LCD)
+    #if defined(USE_SERIAL_2004_LCD)
     if (sSerialLCDAvailable) {
-#  if !defined(DISPLAY_ALWAYS_ON)
+    #  if !defined(DISPLAY_ALWAYS_ON)
         if (sSerialLCDIsSwitchedOff) {
             myLCD.backlight();
             sSerialLCDIsSwitchedOff = false;
         }
-#  endif
+    #  endif
         myLCD.clear();
         myLCD.setCursor(0, 0);
         myLCD.print(F("VCC overvoltage"));
         myLCD.setCursor(0, 1);
         myLCD.print(F("VCC > 5.25 V"));
     }
-#endif
-// Do it as long as overvoltage happens
+    #endif
+    // Do it as long as overvoltage happens
     tone(BUZZER_PIN, 1100, 300);
     delay(300);
     tone(BUZZER_PIN, 2200, 1000);
@@ -969,13 +1159,13 @@ void handleOvervoltage() {
  */
 bool isVCCTooHighSimple() {
     ADMUX = ADC_1_1_VOLT_CHANNEL_MUX | (DEFAULT << SHIFT_VALUE_FOR_REFERENCE);
-// ADCSRB = 0; // Only active if ADATE is set to 1.
+    // ADCSRB = 0; // Only active if ADATE is set to 1.
 // ADSC-StartConversion ADIF-Reset Interrupt Flag - NOT free running mode
     ADCSRA = (_BV(ADEN) | _BV(ADSC) | _BV(ADIF) | ADC_PRESCALE128); //  128 -> 104 microseconds per ADC conversion at 16 MHz --- Arduino default
 // wait for single conversion to finish
     loop_until_bit_is_clear(ADCSRA, ADSC);
 
-// Get value
+    // Get value
     uint16_t tRawValue = ADCL | (ADCH << 8);
 
     return tRawValue < 1126000 / VCC_OVERVOLTAGE_THRESHOLD_MILLIVOLT; // < 214

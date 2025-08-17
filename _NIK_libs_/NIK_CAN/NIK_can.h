@@ -16,8 +16,8 @@ MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
 unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
-#define CAN_NEXT_TRY_INTERVAL 50
-#define CAN_MAX_SEND_TRIES 3
+#define CAN_NEXT_TRY_INTERVAL 10
+#define CAN_MAX_SEND_TRIES 5
 
 //filter message types:
 #define CAN_MSG_MASK           0xF0L
@@ -308,13 +308,11 @@ template <class T> int EEPROM_WriteAnything(int ee, const T& value) //write any 
 {
    const byte* p = (const byte*)(const void*)&value;
    unsigned int i;
-   for (i = 0; i < sizeof(value); i++)
+   for (i = 0; i < sizeof(T); i++)
    {   //EEPROM.update(ee++, *p++);
-      byte val = EEPROM.read(ee);
-      if(val!=*p)
-        EEPROM.write(ee,*p);
-      ee++;
-      p++;
+      byte val = EEPROM.read(ee+i);
+      if(val!=*(p+i))
+        EEPROM.write(ee+i,*(p+i));
    }
    return i;
 }
@@ -322,8 +320,27 @@ template <class T> int EEPROM_ReadAnything(int ee, T& value) //read any type fro
 {
    byte* p = (byte*)(void*)&value;
    unsigned int i;
-   for (i = 0; i < sizeof(value); i++)
-       *p++ = EEPROM.read(ee++);
+   for (i = 0; i < sizeof(T); i++){
+       *(p+i) = EEPROM.read(ee+i);
+   }
+   return i;
+}
+
+int EEPROM_WriteAnything(int ee, byte* pvalue, byte size) //write any type to address ee and return numbytes
+{ unsigned int i;
+   for (i = 0; i < size; i++)
+   {   //EEPROM.update(ee++, *p++);
+      byte val = EEPROM.read(ee+i);
+      if(val!=*(pvalue+i))
+        EEPROM.write(ee+i,*(pvalue+i));
+   }
+   return i;
+}
+int EEPROM_ReadAnything(int ee, byte* pvalue, byte size) //read any type from address ee and return numbytes
+{ unsigned int i;
+   for (i = 0; i < size; i++){
+       *(pvalue+i) = EEPROM.read(ee+i);
+   }
    return i;
 }
 

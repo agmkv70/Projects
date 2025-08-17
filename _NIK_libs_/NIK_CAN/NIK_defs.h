@@ -118,6 +118,8 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_CANQueueError 100 //CANQueueError on Wifi-ESP8266
 
 //////ElMeter
+#define VPIN_ElMeter_EnergyKWh_Reset     108
+#define VPIN_ElMeter_EnergyKWh_Accumulated     109
 #define VPIN_ElMeter_EnergyKWh     110
 #define VPIN_ElMeter_EnergyKWhDelta     111
 #define VPIN_ElMeter_P1     112
@@ -141,3 +143,5 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_BAT_EnergyPercent   128
 #define VPIN_BAT_CurPowerW       129
 #define VPIN_BAT_SendIntervalSec 130
+#define VPIN_BAT_DeltaCellmV     131
+#define VPIN_BAT_MaxTemperature  132

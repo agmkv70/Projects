@@ -57,18 +57,18 @@ void fillAllCANData(struct JKReplyStruct *aJKFAllReply) {
     PylontechCANBatteryRequestFrame35C.fillFrame(aJKFAllReply);
     PylontechCANErrorsWarningsFrame359.fillFrame(aJKFAllReply);
     PylontechCANCurrentValuesFrame356.fillFrame(aJKFAllReply);
-#if defined(CAPACITY_35F_EXTENSIONS)
+    #if defined(CAPACITY_35F_EXTENSIONS)
     PylontechCANSMACapacityFrame35F.fillFrame(aJKFAllReply);
-#endif
-#if defined(CAPACITY_379_EXTENSIONS)
+    #endif
+    #if defined(CAPACITY_379_EXTENSIONS)
     PylontechCANLuxpowerCapacityFrame379.fillFrame(aJKFAllReply);
-#endif
-#if defined(BYD_LIMITS_373_EXTENSIONS)
+    #endif
+    #if defined(BYD_LIMITS_373_EXTENSIONS)
     BYDCANCellLimitsFrame373.fillFrame(aJKFAllReply);
-#endif
-#if defined(CAN_DATA_MODIFICATION)
+    #endif
+    #if defined(CAN_DATA_MODIFICATION)
     modifyCANData();
-#endif
+    #endif
 }
 
 void sendCANFrame(struct CANFrameStruct *aPylontechCANFrame) {
@@ -76,9 +76,7 @@ void sendCANFrame(struct CANFrameStruct *aPylontechCANFrame) {
             aPylontechCANFrame->FrameData.UBytes);
 }
 
-/*
- * Called in case of BMS communication timeout
- */
+//Called in case of BMS communication timeout
 void modifyAllCanDataToInactive() {
     PylontechCANCurrentValuesFrame356.FrameData.Current100Milliampere = 0;
     // Clear all requests in case of timeout / BMS switched off, before sending

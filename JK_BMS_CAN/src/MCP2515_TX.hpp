@@ -27,7 +27,7 @@
 #ifndef _MCP2515_TX_HPP
 #define _MCP2515_TX_HPP
 
-#include "SPI.h"
+#include <SPI.h>
 #include "mcp2515_can_dfs.h"
 #include "digitalWriteFast.h"
 
@@ -38,7 +38,8 @@ SPISettings sSPISettings(4000000, MSBFIRST, SPI_MODE0);
 
 #define MCP2515_RETURN_OK                           false
 
-#define MCP2515_CAN_CONTROL_REGISTER_CONTENT        MODE_NORMAL // default mode
+//#define MCP2515_CAN_CONTROL_REGISTER_CONTENT        MODE_NORMAL // default mode
+#define MCP2515_CAN_CONTROL_REGISTER_CONTENT        MCP_NORMAL // default mode
 //#define MCP2515_CAN_CONTROL_REGISTER_CONTENT        MODE_ONESHOT | CLKOUT_ENABLE; // Alternative mode with no resending and clock output at pin 3
 
 void resetMCP2515(void) {

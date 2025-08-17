@@ -46,12 +46,12 @@ static int   TEHPowerPeriodSeconds=5; //period of PWM in sec
 static unsigned long  TEHPeriodMillis=2000L; //period of PWM in millis
 unsigned long  TEHPWMCycleStart=0; //last cycle start
 float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
-      TEHPID_Kp=5, TEHPID_Ki=1, TEHPID_Kd=7;
+      TEHPID_Kp=2, TEHPID_Ki=0.5, TEHPID_Kd=3;
 float TEHPID_Isum=0, TEHPID_prevtempTEH=0, TEHPID_prevtempAirOut=0;
 
 float KdT_TEH=2, minKdT_TEH=1, maxKdT_TEH=10; //coef: TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn)
-float kPwr2Air=0.24; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
-float kPwr_preMillisPerC=3000; //kPwr mode: full power preheat millis/*C
+float kPwr2Air=0.34; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
+float kPwr_preMillisPerC=4000; //kPwr mode: full power preheat millis/*C
 int kPwr_preheatStart=0,kPwr_PreheatIsOn=0; //kPwr mode: flag to start preheating
 unsigned long kPwr_lastPreheatStartMillis=0, minpreheatRepeatPeriodMillis=5*60*1000L, StopPreheatTimerId=-1; //remember for not to preheat too often
 

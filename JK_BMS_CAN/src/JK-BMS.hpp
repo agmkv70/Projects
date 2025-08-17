@@ -584,17 +584,17 @@ void fillJKComputedData() {
     JKComputedData.TemperatureMaximum = tMaxTemperature;
 
     JKComputedData.TotalCapacityAmpereHour = swap(sJKFAllReplyPointer->TotalCapacityAmpereHour);
-// 16 bit multiplication gives overflow at 640 Ah
+    // 16 bit multiplication gives overflow at 640 Ah
     JKComputedData.RemainingCapacityAmpereHour = ((uint32_t) JKComputedData.TotalCapacityAmpereHour
             * sJKFAllReplyPointer->SOCPercent) / 100;
 
-// Two values which are zero during JK-BMS startup for around 16 seconds
+    // Two values which are zero during JK-BMS startup for around 16 seconds
     JKComputedData.BMSIsStarting = (sJKFAllReplyPointer->SOCPercent == 0 && sJKFAllReplyPointer->Cycles == 0);
 
     JKComputedData.BatteryFullVoltage10Millivolt = swap(sJKFAllReplyPointer->BatteryOvervoltageProtection10Millivolt);
     JKComputedData.BatteryVoltage10Millivolt = swap(sJKFAllReplyPointer->Battery10Millivolt);
-//    JKComputedData.BatteryVoltageDifferenceToFull10Millivolt = JKComputedData.BatteryFullVoltage10Millivolt
-//            - JKComputedData.BatteryVoltage10Millivolt;
+    //    JKComputedData.BatteryVoltageDifferenceToFull10Millivolt = JKComputedData.BatteryFullVoltage10Millivolt
+    //            - JKComputedData.BatteryVoltage10Millivolt;
 
     JKComputedData.BatteryEmptyVoltage10Millivolt = swap(sJKFAllReplyPointer->BatteryUndervoltageProtection10Millivolt);
     JKComputedData.BatteryVoltageDifferenceToEmpty10Millivolt = JKComputedData.BatteryVoltage10Millivolt
@@ -623,7 +623,7 @@ void fillJKComputedData() {
 
     JKComputedData.BatteryLoadPower = JKComputedData.BatteryVoltageFloat * JKComputedData.BatteryLoadCurrentFloat;
 
-#if !defined(NO_CELL_STATISTICS)
+    #if !defined(NO_CELL_STATISTICS)
     /*
      * Increment BalancingCount and fill sBalancingTimeString
      */
@@ -633,7 +633,7 @@ void fillJKComputedData() {
                 (uint16_t) ((CellStatistics.BalancingCount / (60 * 30)) % 24),
                 (uint16_t) (CellStatistics.BalancingCount / 30) % 60);
     }
-#endif // NO_CELL_STATISTICS
+    #endif // NO_CELL_STATISTICS
 }
 
 void printJKCellInfoOverview() {
