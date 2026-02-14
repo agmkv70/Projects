@@ -252,18 +252,20 @@ void printLocalTime(){
   if(!getLocalTime(&timeinfo)){
     #ifdef MQTT_On
     //Serial.println("Failed to obtain time");
+    MQTTClient.publish("terminal_tping","er");
     MQTTClient.publish("terminal", "Failed to obtain time!");
     #endif
     return;
   }
 
   #ifdef MQTT_On
+  MQTTClient.publish("terminal_tping", "ok");
 
   //Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
   char timeHour[3];
   strftime(timeHour,3, "%H", &timeinfo);
   //Serial.println(timeHour);
-  MQTTClient.publish("terminal", timeHour);
+  MQTTClient.publish("terminal_h", timeHour);
 
   //char timeWeekDay[10];
   //strftime(timeWeekDay,10, "%A", &timeinfo);
@@ -272,10 +274,10 @@ void printLocalTime(){
   
   char cstr[16];
   itoa(timeinfo.tm_min, cstr, 10);
-  MQTTClient.publish("terminal", cstr);
+  MQTTClient.publish("terminal_m", cstr);
   
   itoa(timeinfo.tm_sec, cstr, 10);
-  MQTTClient.publish("terminal", cstr);
+  MQTTClient.publish("terminal_s", cstr);
   
   #endif
   /*Serial.print("Day of week: ");
@@ -330,15 +332,58 @@ void printLocalTime(){
 
 
 void setup(){
+
+  // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
+  if(CAN0.begin(MCP_ANY, CAN_250KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT,MCP_STD
+  {  ;//Serial.println("MCP2515 Initialized Successfully!");
+    #ifdef MQTT_On
+      MQTTClient.publish("terminal_log","CAN ok");
+      MQTTClient.loop();
+    #endif
+  }
+  else
+  { Serial.println("Error Initializing MCP2515!..");
+    #ifdef MQTT_On
+      MQTTClient.publish("terminal_log","CAN err");
+      MQTTClient.loop();
+    #endif
+    pinMode(16,OUTPUT);
+    for(;1;){
+      digitalWrite(16,HIGH);
+      delay(50);
+      digitalWrite(16,LOW);
+      delay(50);
+    }
+  }
+  
+  //Blynk.begin(auth, ssid, pass);
+  // You can also specify server:
+  #ifndef LocalBlynk_On
+    Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
+  #endif
+  #ifdef LocalBlynk_On
+    Blynk.begin(auth, ssid, pass, IPAddress(192,168,0,130), 8080);
+  #endif
+
   #ifdef testmode
     Serial.begin(115200);
   #endif
+  #ifdef MQTT_On
+    MQTTClient.setServer(mqtt_server, mqtt_port);
+    MQTTClient.setCallback(MQTTCallback);
+    MQTTReconnect();
+    MQTTClient.loop();
 
-  // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
-  if(CAN0.begin(MCP_STD, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY,MCP_STDEXT,MCP_STD
-    ;//Serial.println("MCP2515 Initialized Successfully!");
-  else
-    Serial.println("Error Initializing MCP2515!..");
+    //timer.setInterval(1L, checkReadCAN);
+    #ifdef testmode
+      timer.setInterval(10000L, testSendQueue);
+    #endif
+    //#ifndef testmode
+    //  timer.setInterval(60000L, testSendQueue);
+    //#endif
+  #endif
+
+  
   
   //initialize filters Masks(0-1),Filters(0-5):
   unsigned long mask = (0x0100L | CAN_Unit_MASK)<<16;			//0x0F	0x010F0000;
@@ -361,29 +406,7 @@ void setup(){
   #endif
   pinMode(CAN_PIN_INT, INPUT);                           // Configuring pin for /INT input
 
-  //Blynk.begin(auth, ssid, pass);
-  // You can also specify server:
-  #ifndef LocalBlynk_On
-    Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 8442);
-  #endif
-  #ifdef LocalBlynk_On
-    Blynk.begin(auth, ssid, pass, IPAddress(192,168,0,130), 8080);
-  #endif
-
   timer.setInterval(5000L, SendCANQueueError);
-
-  #ifdef MQTT_On
-    MQTTClient.setServer(mqtt_server, mqtt_port);
-    MQTTClient.setCallback(MQTTCallback);
-    
-    //timer.setInterval(1L, checkReadCAN);
-    #ifdef testmode
-      timer.setInterval(10000L, testSendQueue);
-    #endif
-    //#ifndef testmode
-    //  timer.setInterval(60000L, testSendQueue);
-    //#endif
-  #endif
 
   #ifdef WifiLED_On
     timer.setInterval(300,yLEDBlink);

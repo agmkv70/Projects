@@ -29,16 +29,17 @@ MCP_CAN CAN0(10);                               // Set CS to pin 10
 
 
 void setup()
-{ delay(5000);
+{ delay(3000);
   Serial.begin(115200);  // CAN is running at 500,000BPS; 115,200BPS is SLOW, not FAST, thus 9600 is crippling.
-  Serial.println(";jkdfg;lsjkfg;jkdfg;ljsdflgkjdl;fkgjdl;fgjk;ljk");
+  Serial.println("test start... ");
 
   // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
-  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK)
-    Serial.println("MCP2515 Initialized Successfully!");
+  if(CAN0.begin(MCP_ANY, CAN_250KBPS, MCP_8MHZ) == CAN_OK)
+    Serial.println("+++++++++++MCP2515 Initialized Successfully: OK");
   else
-    Serial.println("Error Initializing MCP2515...");
-
+  {  Serial.println("-----------Error Initializing MCP2515 !!!!!!!!");
+    delay(10000);
+  }
   // Since we do not set NORMAL mode, we are in loopback mode by default.
   CAN0.setMode(MCP_LOOPBACK);
 
@@ -84,7 +85,7 @@ void loop()
 
   }
 
-  delay(1000);
+  delay(2000);
 }
 
 /*********************************************************************************************************

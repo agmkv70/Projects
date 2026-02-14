@@ -119,22 +119,19 @@ int MainCycleInterval=6; //seconds
 microLED <NUMWSLEDS, LED_WS2812_PIN, MLED_NO_CLOCK, LED_WS2812, ORDER_GRB> LED_WS2812_strip;
 int LED_WS_count=0;
 mData LED_WS_color;
+byte LED_WS_blinkState=0;
 
 void LED_WS2812_Update(){ //once in a second
     LED_WS2812_strip.setBrightness(30); //gluchilo - maybe helps
     LED_WS2812_strip.clear();
     if(LED_WS_count == -1){
-        LED_WS2812_strip.fill(5,6,LED_WS_color); //light 2 middle leds
+        LED_WS2812_strip.fill(8,4,LED_WS_color); //light 2 middle leds
     }else{
         LED_WS2812_strip.fill(0,LED_WS_count-1,LED_WS_color);
     }
-    /*if(LED_WS_state1==0){
-        LED_WS_state1=1;
-        LED_WS2812_strip.leds[LED_WS_pos] = mWhite;
-    }else{
-        LED_WS_state1=0;
-        LED_WS2812_strip.leds[LED_WS_pos] = mBlue;
-    }*/
+    //blink with 2 leds for illumination: 
+    LED_WS2812_strip.set(4+LED_WS_blinkState, mWhite);
+    LED_WS_blinkState = LED_WS_blinkState==0 ? 1 : 0;
     LED_WS2812_strip.show();
 }
 

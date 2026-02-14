@@ -633,6 +633,7 @@ void CommandCycle_Event(){
 }
 
 //////////////////////CAN commands///////////////////
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* tmp, unsigned char len){} //empty
 char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   // #ifdef testmode
   // Serial.print("received CAN message: VPIN=");
@@ -791,7 +792,8 @@ void setup(void) {
   ValveClose(); //initial closing
 
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  //if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
     ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
   else
   {  
