@@ -94,7 +94,8 @@ void setup(){
   ui_init();
 
   //#include "user_interface.h"
-  wifi_set_sleep_type(LIGHT_SLEEP_T);
+  //esp_sleep_enable_touchpad_wakeup()
+  //esp_deep_sleep_start();
   Serial.println( "Setup done" );
 }
 
