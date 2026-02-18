@@ -1,4 +1,3 @@
-
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 
@@ -94,8 +93,7 @@ void setup(){
   ui_init();
 
   //#include "user_interface.h"
-  //esp_sleep_enable_touchpad_wakeup()
-  //esp_deep_sleep_start();
+  //wifi sleep - removed
   Serial.println( "Setup done" );
 }
 
