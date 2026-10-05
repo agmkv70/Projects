@@ -16,7 +16,9 @@ MCP_CAN CAN0(CAN_PIN_CS);       // CS  = pin 10
 unsigned long rxId;
 unsigned char dataLen = 0;
 unsigned char rxBuf[8];
+#ifndef CAN_NEXT_TRY_INTERVAL //can be set in board code before #include <NIK_can.h>
 #define CAN_NEXT_TRY_INTERVAL 10
+#endif
 #define CAN_MAX_SEND_TRIES 5
 
 //filter message types:

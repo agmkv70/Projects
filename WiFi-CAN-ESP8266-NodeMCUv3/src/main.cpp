@@ -424,10 +424,17 @@ void setup(){
 }
 
 
+//MCP2515 has only 2 RX buffers: read all pending frames, not one per loop, or bursts get dropped
+void drainCAN(){
+  for(byte i=0; i<8 && digitalRead(CAN_PIN_INT)==LOW; i++)
+    checkReadCAN();
+}
+
 void loop(){
   Blynk.run();
+  drainCAN();
   timer.run();
-  checkReadCAN();
+  drainCAN();
 
   //#ifdef WifiLED_On
   //if (WiFi.status() == WL_CONNECTED){
@@ -438,6 +445,7 @@ void loop(){
       MQTTClient.loop();
     else
       MQTTReconnect();
+    drainCAN();
     #endif
   //}else
   //  yLED=2;

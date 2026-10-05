@@ -4,6 +4,7 @@
 
 #define CAN_PIN_INT   9    
 #define CAN_PIN_CS   10 
+#define CAN_NEXT_TRY_INTERVAL 50 //ms between sent CAN messages: WiFi bridge drops frames sent in fast bursts
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
@@ -64,6 +65,7 @@ volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=0, EnergyKWh_ResetValue=0; //t
 volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
 
 #define MAXRESPONSE 21
+#define ELMETER_QUERY_GAP_MS 50 //pause before each request: meter misses a request sent right after its previous answer
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
 volatile int byteReceived;
@@ -73,11 +75,11 @@ volatile int byteSend;
 unsigned int crc16MODBUS(const byte *nData, int count);
 void Send2ServerElMeterDataCallback();
 void Send2ServerElMeterData(int);
-byte ElMeter_TestConnection();
-byte ElMeter_OpenUser(byte usr);
-byte ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff);
-byte ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
-byte ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
+int8_t ElMeter_TestConnection();
+int8_t ElMeter_OpenUser(byte usr);
+int8_t ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff);
+int8_t ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
+int8_t ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
 #ifdef HardSerial
   void SerialCleanSwap(){
     //clear read buffer
@@ -154,7 +156,7 @@ void setup(){
 
   //byte res = ElMeter_SetTimeCorr(20,05,00);
   //Log.print("SetTime: ");
-  //Log.println(res);
+  //Log.println((int)res);
 
   /////////////////////////////////////////////////////////////////////////////////////
   // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
@@ -243,9 +245,9 @@ void loop(){
     Log.println();
 
     Log.print("Test connection: ");
-    byte res=0;
+    int8_t res=0;
     res = ElMeter_TestConnection();
-    Log.println(res);
+    Log.println((int)res);
     if(res<=0){
       ElCANSerial.begin(9600);
       return;
@@ -253,13 +255,13 @@ void loop(){
 
     Log.print("Login user1: ");
     res = ElMeter_OpenUser(1);
-    Log.println(res);
+    Log.println((int)res);
 
     /*
     byte YY,MM,DD,hh,mm,ss,sumerWinter;
     Log.print("Get time: ");
     res = ElMeter_GetTime(&YY,&MM,&DD,&hh,&mm,&ss,&sumerWinter);
-    Log.print(res);
+    Log.print((int)res);
     Log.print(" ");
     Log.print(YY);
     Log.print("-");
@@ -283,19 +285,19 @@ void loop(){
     Log.println(Wh,3);
     res = ElMeter_GetEnergyA(&Wh,1);
     Log.print("Wh1: ");
-    Log.print(res);
+    Log.print((int)res);
     Log.print(" = ");
     Log.println(Wh,3);
     res = ElMeter_GetEnergyA(&Wh,2);
     Log.print("Wh2: ");
-    Log.print(res);
+    Log.print((int)res);
     Log.print(" = ");
     Log.println(Wh,3);
     
     float ph1,ph2,ph3;
     Log.print("Power: ");
     res = ElMeter_GetInstantPower(&ph1,&ph2,&ph3);
-    Log.print(res);
+    Log.print((int)res);
     Log.print("; 1= ");
     Log.print(ph1,3);
     Log.print(" 2= ");
@@ -305,7 +307,7 @@ void loop(){
     
     Log.print("Voltage: ");
     res = ElMeter_GetInstantVoltage(&ph1,&ph2,&ph3);
-    Log.print(res);
+    Log.print((int)res);
     Log.print("; 1= ");
     Log.print(ph1);
     Log.print(" 2= ");
@@ -400,7 +402,7 @@ unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет ко�
   return wCRCWord;*/
 }
 
-byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
+int8_t ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // для тестовых запросов {Адрес счетчика 4, 	Запрос 1, 	CRC16 (Modbus) 2}
   int s_addr = 1;
   int s_address_cmd = s_cmd + s_addr; //plus address byte
   int s_address_cmd_crc = s_address_cmd + 2; //plus CRC
@@ -446,7 +448,8 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
     Log.println(temp_term2);
     Log.flush();
   #endif
-  
+
+  delay(ELMETER_QUERY_GAP_MS);
   #ifdef HardSerial
     SerialCleanSwap();
   #else
@@ -559,8 +562,8 @@ byte ElMeter__ExecQuery(volatile byte *cmd, int s_cmd, byte responseLength){ // 
    
 }
 
-byte ElMeter_TestConnection(){
-  byte res = ElMeter__ExecQuery(test_cmd, sizeof(test_cmd), 4);
+int8_t ElMeter_TestConnection(){
+  int8_t res = ElMeter__ExecQuery(test_cmd, sizeof(test_cmd), 4);
   if(res>0){
     if(response[0]==address[0] && response[1]==0){
       return 1; //OK
@@ -571,8 +574,8 @@ byte ElMeter_TestConnection(){
     return res;
 }
 
-byte ElMeter_OpenUser(byte usr){
-  byte res;
+int8_t ElMeter_OpenUser(byte usr){
+  int8_t res;
   if(usr==1){
     res = ElMeter__ExecQuery(openUser_cmd1, sizeof(openUser_cmd1), 4);
   }else if(usr==2){
@@ -597,8 +600,8 @@ byte Dec2HD(byte x){
   return (x/10)<<4 | (x%10);
 }
 /*  
-byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte *sumerWinter){
-  byte res;
+int8_t ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte *sumerWinter){
+  int8_t res;
   res = ElMeter__ExecQuery(getTime_cmd, sizeof(getTime_cmd), 11);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
@@ -620,7 +623,7 @@ byte ElMeter_GetTime(byte *YY,byte *MM,byte *DD,byte *hh,byte *mm,byte *ss,byte 
     return res;
 }
 
-byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerWinter){
+int8_t ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerWinter){
   setTime_cmd[2] = Dec2HD(ss);
   setTime_cmd[3] = Dec2HD(mm);
   setTime_cmd[4] = Dec2HD(hh);
@@ -629,7 +632,7 @@ byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerW
   setTime_cmd[8] = Dec2HD(YY);
   setTime_cmd[9] = sumerWinter;
   
-  byte res;
+  int8_t res;
   res = ElMeter__ExecQuery(setTime_cmd, sizeof(setTime_cmd), 4);
   //Ответ: (80) 43 14 16 03 27 02 08 01 (CRC).
   //Результат: 16:14:43 среда 27 февраля 2008 года, зима
@@ -644,12 +647,12 @@ byte ElMeter_SetTime(byte YY,byte MM,byte DD,byte hh,byte mm,byte ss,byte sumerW
     return res;
 }
 
-byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
+int8_t ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
   setTime_cmd[2] = Dec2HD(ss);
   setTime_cmd[3] = Dec2HD(mm);
   setTime_cmd[4] = Dec2HD(hh);
   
-  byte res;
+  int8_t res;
   res = ElMeter__ExecQuery(setTimeCorr_cmd, sizeof(setTimeCorr_cmd), 4);
     
   if(res>0){
@@ -662,8 +665,8 @@ byte ElMeter_SetTimeCorr(byte hh,byte mm,byte ss){
     return res;
 }
 */
-byte ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff){
-  byte res;
+int8_t ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff){
+  int8_t res;
   getEnergy_cmd[2]=tariff;
   res = ElMeter__ExecQuery(getEnergy_cmd, sizeof(getEnergy_cmd), 19); 
   //4x4 bytes (A+,A-,R+,R-)
@@ -687,8 +690,8 @@ byte ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff){
     return res;
 }
 
-byte ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3){
-  byte res;
+int8_t ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3){
+  int8_t res;
   res = ElMeter__ExecQuery(curent_PSum_cmd, sizeof(curent_PSum_cmd), 15); 
   //4x3 bytes (sum,ph1,ph2,ph3)
   
@@ -724,8 +727,8 @@ byte ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile fl
     return res;
 }
 
-byte ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3){
-  byte res;
+int8_t ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3){
+  int8_t res;
   res = ElMeter__ExecQuery(curent_Uall_cmd, sizeof(curent_Uall_cmd), 12); 
   //3x3 (ph1,ph2,ph3)
   
@@ -817,7 +820,7 @@ void Send2ServerElMeterDataCallback(){
   Send2ServerElMeterData(0); 
 }
 void Send2ServerElMeterData(int forceSend){
-  volatile byte res = 0;
+  volatile int8_t res = 0;
   volatile float EnergyKWh=0,EnergyKWh1=0,EnergyKWh2=0;
   volatile float P1,P2,P3;
   volatile float V1,V2,V3;
@@ -844,7 +847,7 @@ void Send2ServerElMeterData(int forceSend){
   res = ElMeter_OpenUser(1);
   #ifdef testmodeS2
     Log.print("Open User1 = ");
-    Log.println(res);
+    Log.println((int)res);
   #endif //testmodeS2
 
   /*res = ElMeter_GetEnergyA(&EnergyKWh,0);
@@ -931,7 +934,7 @@ void Send2ServerElMeterData(int forceSend){
   res = ElMeter_GetInstantPower(&P1,&P2,&P3);
   #ifdef testmodeS2
     Log.print("Power: ");
-    Log.print(res);
+    Log.print((int)res);
     Log.print("; 1= ");
     Log.print(P1,3);
     Log.print(" 2= ");
@@ -956,7 +959,7 @@ void Send2ServerElMeterData(int forceSend){
   res = ElMeter_GetInstantVoltage(&V1,&V2,&V3);
   #ifdef testmodeS2
     Log.print("Voltage: ");
-    Log.print(res);
+    Log.print((int)res);
     Log.print("; 1= ");
     Log.print(V1);
     Log.print(" 2= ");
