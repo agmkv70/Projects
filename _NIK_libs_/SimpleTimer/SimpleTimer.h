@@ -36,11 +36,16 @@
 
 typedef void (*timer_callback)(void);
 
+#ifndef SIMPLETIMER_MAX_TIMERS
+#define SIMPLETIMER_MAX_TIMERS 10
+#endif
+
 class SimpleTimer {
 
 public:
     // maximum number of timers
-    const static int MAX_TIMERS = 10;
+    // (set SIMPLETIMER_MAX_TIMERS in platformio.ini build_flags: it must be the same for this lib and board code)
+    const static int MAX_TIMERS = SIMPLETIMER_MAX_TIMERS;
 
     // setTimer() constants
     const static int RUN_FOREVER = 0;

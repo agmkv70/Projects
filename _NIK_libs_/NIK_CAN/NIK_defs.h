@@ -85,6 +85,10 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_AirOutTemp    64
 #define VPIN_TEHMaxTemp    65
 #define VPIN_ClearTEHOverheatError  67
+#define VPIN_TEHPID_AutoTune        68 //cmd: 0=abort, 1=start (step 3), 1.5..5=start with this power step; reports: 0=off, 1..3=running(1+cycles done), 100=done, <0=aborted
+#define VPIN_TEHPID_AT_Ku           69 //autotune result: ultimate gain
+#define VPIN_TEHPID_AT_Tu           70 //autotune result: oscillation period, sec
+#define VPIN_TEHPID_AT_Amp          72 //autotune: measured air-out oscillation amplitude, *C
 //75 ?
 #define VPIN_HEATER_TEHPIDSTATUS    76     //0 1 2 (off/on/error)
 #define VPIN_HEATER_VALVESTATUS     77     //0 1 (closed/opened), 2(opening), 3(closing)

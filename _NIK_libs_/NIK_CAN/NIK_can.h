@@ -94,6 +94,7 @@ void sendNextCANMessage(){
   }
   if(CANQueueStop){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage ); //5 millis try interval
+    if(timerIntervalForNextSendCAN<0) timerIntervalForNextSendCAN=0; //no free timer slot: sending restarts on next add
     return;
   }
 
@@ -138,6 +139,7 @@ void sendNextCANMessage(){
     timerIntervalForNextSendCAN=0;
   }else{ //not empty - try again soon:
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage ); //5 millis try interval
+    if(timerIntervalForNextSendCAN<0) timerIntervalForNextSendCAN=0; //no free timer slot: sending restarts on next add
   }
 }
 
@@ -165,6 +167,7 @@ void addCANMessage2Queue(long mesID, unsigned char vPinNumber, float vPinValueFl
   CANQueue.push(&mes);
   if(timerIntervalForNextSendCAN==0){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
+    if(timerIntervalForNextSendCAN<0) timerIntervalForNextSendCAN=0; //no free timer slot: sending restarts on next add
   }
   CANQueueStop=0;
 }
@@ -191,6 +194,7 @@ void addCANMessage2QueueStr(long mesID, unsigned char vPinNumber, String Str){  
   CANQueue.push(&mes);
   if(timerIntervalForNextSendCAN==0){
     timerIntervalForNextSendCAN = timer.setTimeout( CAN_NEXT_TRY_INTERVAL, sendNextCANMessage); //5 millis try interval
+    if(timerIntervalForNextSendCAN<0) timerIntervalForNextSendCAN=0; //no free timer slot: sending restarts on next add
   }
   CANQueueStop=0;
 }

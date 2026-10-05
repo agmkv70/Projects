@@ -13,8 +13,9 @@
 #define TempIn_DHT_PIN  6
 #define TempOut_DS_PIN  7
 
-#define CAN_PIN_INT   9    
-#define CAN_PIN_CS   10 
+#define CAN_PIN_INT   9
+#define CAN_PIN_CS   10
+#define _MAX_FIXEDARRAY_DEFINED 16 //CAN queue: temps + PID reports can come at once
 #include <NIK_defs.h>
 #include <NIK_can.h>
 
@@ -42,12 +43,27 @@ int PROTECTIONRELAYSTATUS=0; //to turn on this relay (with FAN and TEH on it: FA
 
 float TEHPower=0,TEHPower_PIDCorrection=0; //TEH power on time factor 0.0 .. 10.0 float
 int   TEHPowerCurrentStateOnOff=0; //0=on or 1=off
-static int   TEHPowerPeriodSeconds=5; //period of PWM in sec
+static int   TEHPowerPeriodSeconds=2; //period of PWM in sec
 static unsigned long  TEHPeriodMillis=2000L; //period of PWM in millis
 unsigned long  TEHPWMCycleStart=0; //last cycle start
-float TEHPID_KCoef=0.0001, //for convenience multiply all TEHPID_K
-      TEHPID_Kp=2, TEHPID_Ki=0.5, TEHPID_Kd=3;
-float TEHPID_Isum=0, TEHPID_prevtempTEH=0, TEHPID_prevtempAirOut=0;
+//PID on air-out temperature, added to kPwr power: power(0..10) = TEHPower(kPwr) + P + I + D
+float TEHPID_Kp=1,     //power per 1*C of error
+      TEHPID_Ki=0.003, //power per 1*C*sec of error
+      TEHPID_Kd=0;     //power per 1*C/sec of air-out temperature change
+float TEHPID_I=0;      //integral part, power units
+float TEHPID_prevtempAirOut=NAN; //NAN = PID (re)started
+unsigned long TEHPID_prevMillis=0;
+byte  newAirOutReading=0; //1 = tempAirOut was really read since last PID step
+
+//PID autotune (relay method): power switches between base+-step around AirOutTargetTemp
+int   AT_state=0;          //0=off, 1=running, 100=done, <0=aborted (VPIN_TEHPID_AutoTune gets 1+cycles while running)
+float AT_step=3, AT_hyst=0.3, AT_high=0, AT_low=0;
+byte  AT_relayHigh=0, AT_highSwitches=0, AT_cycles=0;
+float AT_max=-100, AT_min=1000, AT_sumAmp=0;
+unsigned long AT_lastHighSwitch=0, AT_lastSwitch=0, AT_start=0, AT_sumPeriod=0;
+#define AT_CYCLES_NEEDED 3                 //measured full cycles (after one skipped transient cycle)
+#define AT_MAX_HALFCYCLE_MS (40*60*1000UL) //no switch for 40 min - process doesn't oscillate
+#define AT_MAX_TOTAL_MS (4*60*60*1000UL)
 
 float KdT_TEH=2, minKdT_TEH=1, maxKdT_TEH=10; //coef: TEHTargetTemp = tempAirIn + KdT_TEH * (AirOutTargetTemp-tempAirIn)
 float kPwr2Air=0.34; //kPwr mode: How much power(0..10) needed to heat flowing air for 1*C
@@ -82,7 +98,7 @@ int ReadTempCycleInterval=5; //часто - отадка 10 сек
 #ifndef testmode
 int ReadTempCycleInterval=5; //изредка 60 сек
 #endif
-int eepromVIAddr=1000,eepromValueIs=7730+5; //if this is in eeprom, then we got valid values, not junk
+int eepromVIAddr=1000,eepromValueIs=7730+6; //if this is in eeprom, then we got valid values, not junk (+6: new PID units)
 
 int readTempTimerId=-1, TEHPWMTimerId=-1, KTCtimerId=-1, commandTimerId=-1;
 
@@ -140,61 +156,141 @@ void TEH_kPwr_Evaluation(){
 }
 
 ///////////////////////////////////TEH PID//////////////////////////////
-void TEHPIDCorrectionEvaluation(){ //calc TEHPower_PIDCorrection  - в пределах +-3
+void EEPROM_storeValues();
+
+void TEHPID_Reset(){ //on (re)start of PID heating: no old state, no D kick
+  TEHPID_I=0;
+  TEHPID_prevtempAirOut=NAN;
+  TEHPower_PIDCorrection=0;
+}
+
+void AT_Report(){
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_AutoTune, AT_state==1 ? 1+AT_cycles : AT_state);
+}
+void AT_Abort(int reason){ //reason<0: -1 not in PID mode, -2 no oscillation, -3 too long, -4 oscillation too small
+  if(AT_state!=1) return;
+  AT_state=reason;
+  TEHPID_Reset();
+  AT_Report();
+}
+void AT_Start(float step){ //only in PID heating mode (targetHeaterStatus=5, valve opened, TEH on)
+  if(TEHPIDSTATUS!=1 || ErrorTempAirOut || ErrorTempAirIn || ErrorTempTEH){
+    AT_state=1; AT_Abort(-1);
+    return;
+  }
+  AT_step = step;
+  float base = constrain(TEHPower+TEHPower_PIDCorrection, 0, 10); //current power is a good middle point
+  AT_high = min(base+AT_step, 10.0f);
+  AT_low  = max(base-AT_step, 0.0f);
+  AT_relayHigh = (tempAirOut < AirOutTargetTemp);
+  AT_highSwitches=0; AT_cycles=0; AT_sumAmp=0; AT_sumPeriod=0;
+  AT_max=-100; AT_min=1000;
+  AT_start = AT_lastSwitch = millis();
+  AT_state=1;
+  AT_Report();
+}
+void AT_Finish(){
+  float d = (AT_high-AT_low)/2;                    //relay amplitude (power)
+  float a = AT_sumAmp/AT_cycles/2;                 //air-out oscillation amplitude (*C)
+  float Tu = AT_sumPeriod/(float)AT_cycles/1000.0f; //oscillation period (sec)
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_AT_Amp, fround(a,2));
+  if(a <= AT_hyst*1.2f){ AT_Abort(-4); return; }   //oscillation hidden in hysteresis/noise: use bigger step
+  float Ku = 4*d/(PI*sqrt(a*a-AT_hyst*AT_hyst));   //ultimate gain (describing function, hysteresis corrected)
+  //Tyreus-Luyben PI: less aggressive than Ziegler-Nichols, good for slow processes with lag
+  TEHPID_Kp = Ku/3.2f;
+  TEHPID_Ki = TEHPID_Kp/(2.2f*Tu);
+  TEHPID_Kd = 0;
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_AT_Ku, fround(Ku,3));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_AT_Tu, fround(Tu,0));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_Kp, fround(TEHPID_Kp,3));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_Ki, TEHPID_Ki);
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_Kd, TEHPID_Kd);
+  EEPROM_storeValues();
+  //continue with PID bumplessly from the middle of relay:
+  TEHPID_Reset();
+  TEHPID_I = (AT_high+AT_low)/2 - TEHPower;
+  TEHPower_PIDCorrection = TEHPID_I;
+  AT_state=100;
+  AT_Report();
+}
+void AT_Step(){ //on each new air-out reading
+  unsigned long now=millis();
+  if(now-AT_start > AT_MAX_TOTAL_MS){ AT_Abort(-3); return; }
+  if(now-AT_lastSwitch > AT_MAX_HALFCYCLE_MS){ AT_Abort(-2); return; }
+  if(tempAirOut>AT_max) AT_max=tempAirOut;
+  if(tempAirOut<AT_min) AT_min=tempAirOut;
+
+  if(AT_relayHigh && tempAirOut > AirOutTargetTemp+AT_hyst){
+    AT_relayHigh=0;
+    AT_lastSwitch=now;
+  }else if(!AT_relayHigh && tempAirOut < AirOutTargetTemp-AT_hyst){
+    AT_relayHigh=1;
+    AT_lastSwitch=now;
+    AT_highSwitches++;
+    //full cycle = between switches to high; 1st one is transient - skip it
+    if(AT_highSwitches>=3){
+      AT_sumAmp += AT_max-AT_min;
+      AT_sumPeriod += now-AT_lastHighSwitch;
+      AT_cycles++;
+      AT_Report();
+      if(AT_cycles>=AT_CYCLES_NEEDED){
+        AT_lastHighSwitch=now;
+        AT_Finish();
+        return;
+      }
+    }
+    AT_lastHighSwitch=now;
+    AT_max=-100; AT_min=1000;
+  }
+}
+
+void TEHPIDCorrectionEvaluation(){ //calc TEHPower_PIDCorrection, so that TEHPower+correction is in 0..10
   if(kPwr_PreheatIsOn==1){
     TEHPower_PIDCorrection=0;
     return;
   }
 
-  float delta = (AirOutTargetTemp - tempAirOut)*TEHPID_KCoef;
-  
-  if(TEHPID_prevtempAirOut==0)
-    TEHPID_prevtempAirOut = tempAirOut; //init TEHPID_prevtempTEH
-    
-  //sum Integral part of PID only if our result is not saturated:
-  if(TEHPower+TEHPower_PIDCorrection<=0 && delta<0)
-    ; //don't go too far down
-  else{ 
-    if(TEHPower+TEHPower_PIDCorrection>=10 && delta>0)
-      TEHPID_Isum = 0; //don't go too far up & fallback Isum (not to become too hot)
-    else
-      TEHPID_Isum = TEHPID_Isum + delta;
+  if(AT_state==1){ //autotune: relay output instead of PID
+    if(newAirOutReading){
+      newAirOutReading=0;
+      AT_Step();
+    }
+    if(AT_state==1){
+      TEHPower_PIDCorrection = (AT_relayHigh ? AT_high : AT_low) - TEHPower;
+      addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower+TEHPower_PIDCorrection,1));
+      return;
+    }
   }
-  if(TEHPID_Isum<0 && delta>0){//when coming over zero delta - nullify intergal part
-    TEHPID_Isum=0;
-  }else if(TEHPID_Isum>0 && delta<0){
-    TEHPID_Isum=0;
+
+  if(!newAirOutReading) //PID step only on a new measurement (temps are read every ReadTempCycleInterval)
+    return;
+  newAirOutReading=0;
+
+  unsigned long now=millis();
+  if(isnan(TEHPID_prevtempAirOut)){ //first step after start
+    TEHPID_prevtempAirOut = tempAirOut;
+    TEHPID_prevMillis = now;
   }
-  //restrict Isum:
-  if(TEHPID_Isum<-2){
-    TEHPID_Isum=-2;
-  }else if(TEHPID_Isum>2){
-    TEHPID_Isum=2;
-  }
-  
-  float P = TEHPID_Kp * delta;
-  float I = TEHPID_Ki * TEHPID_Isum;
-  float D = TEHPID_Kd * ((TEHPID_prevtempAirOut - tempAirOut)*TEHPID_KCoef); //new D calculation (absolute) - stable when target changes
+  float dt = (now-TEHPID_prevMillis)/1000.0f; //sec
+  if(dt>60) dt=60; //after sensor errors - don't make a huge integral step
+  TEHPID_prevMillis = now;
+
+  float err = AirOutTargetTemp - tempAirOut;
+  float P = TEHPID_Kp * err;
+  float D = (dt>0) ? -TEHPID_Kd * (tempAirOut-TEHPID_prevtempAirOut)/dt : 0; //on measurement: no kick when target changes
   TEHPID_prevtempAirOut = tempAirOut;
 
-  TEHPower_PIDCorrection = TEHPower_PIDCorrection + P + I + D;
-  
-  if(TEHPower_PIDCorrection<-3){
-    TEHPID_Isum = 0;
-    TEHPower_PIDCorrection=-3;
-  }else if(TEHPower_PIDCorrection>3){
-    TEHPID_Isum = 0;
-    TEHPower_PIDCorrection=3;
-  }
-  if(TEHPower+TEHPower_PIDCorrection<0){
-    TEHPower_PIDCorrection = TEHPower_PIDCorrection - (TEHPower+TEHPower_PIDCorrection);
-  }else if(TEHPower+TEHPower_PIDCorrection>10){
-    TEHPower_PIDCorrection = TEHPower_PIDCorrection - (TEHPower+TEHPower_PIDCorrection-10);
-  }
-  
-  //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_P, fround(P,2));
-  //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(I,2));
-  //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
+  //anti-windup: integrate only if it doesn't push power further into saturation
+  float newI = TEHPID_I + TEHPID_Ki*err*dt;
+  float out = TEHPower + P + newI + D;
+  if(!((out>10 && err>0) || (out<0 && err<0)))
+    TEHPID_I = constrain(newI, -10, 10);
+  out = constrain(TEHPower + P + TEHPID_I + D, 0, 10);
+  TEHPower_PIDCorrection = out - TEHPower;
+
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_P, fround(P,2));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_I, fround(TEHPID_I,2));
+  addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPID_D, fround(D,2));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround(TEHPower+TEHPower_PIDCorrection,1));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower_PIDCorrection, fround(TEHPower_PIDCorrection,2));
   addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTargetTemp, fround(AirOutTargetTemp,1));
@@ -309,7 +405,7 @@ float readThermocoupleMAX6675() {
   //pinMode(MAX6675_SCK, OUTPUT);
   
   digitalWrite(CAN_PIN_CS, HIGH);
-  SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0));
+  SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0)); //MAX6675: max 4.3MHz
   digitalWrite(MAX6675_CS, LOW);
   delay(1);
 
@@ -327,8 +423,7 @@ float readThermocoupleMAX6675() {
   data |= SPI.transfer(0) << 0;
   
   digitalWrite(MAX6675_CS, HIGH);
-  SPI.endTransaction();
-  digitalWrite(CAN_PIN_CS, LOW);
+  SPI.endTransaction(); //CAN CS stays HIGH (unselected): mcp_can selects it itself
   delay(1);
   if(data & 0x4){ // Bit 2 indicates if the thermocouple is disconnected
     return NAN;     
@@ -391,6 +486,7 @@ void ReadTemperatureCycle_ReadTempEvent() {
     Serial.print("Read DS failed!"); Serial.println();
    #endif
   }else{
+    newAirOutReading=1;
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_AirOutTemp,fround(tempAirOut,1)); //rounded 0.0 value
   }
   // #ifdef testmode
@@ -408,7 +504,7 @@ void KTCReadThermocouple_Event(){
   ErrorTempTEH=0;
 
   tempTEH = readThermocoupleMAX6675();
-  if(tempTEH==NAN){
+  if(isnan(tempTEH)){ //thermocouple disconnected (x==NAN is always false)
     ErrorTempTEH++;
     tempTEH = -39.9;
   }
@@ -463,6 +559,10 @@ void ValveClose(){
   VALVESTATUS=3;//closing
   valveStopTimerId = timer.setTimeout(ValveMovementTimeMil, ValveStop); //start once after timeout
 }
+void ValveCloseDelayed(){ //timer callback: forget its id first, or ValveClose would delete this running timer's slot
+  valveCloseTimerId = -1;   //and its new stop timer could get the same slot and be deleted by timer.run()
+  ValveClose();
+}
 void ValveOpen(){
   //addCANMessage2QueueStr( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_BLYNK_TERMINAL, "v_open");
   if(valveStopTimerId !=-1 ){ //clear old timer and start a new one
@@ -504,7 +604,7 @@ void CommandCycle_Event(){
   if(millis()-millisLastReport > 10000L){
     millisLastReport = millis();
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHPIDSTATUS, TEHPIDSTATUS);
-    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround((TEHPIDSTATUS>0 ? TEHPower : 0), 1));
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_TEHPower, fround((TEHPIDSTATUS>0 ? TEHPower+TEHPower_PIDCorrection : 0), 1));
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_VALVESTATUS, VALVESTATUS);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_TEHERROR, errorTEHOverheatError);
     //addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_HEATER_PIN4READ, digitalRead(PROTECTION_READ_PIN));
@@ -543,9 +643,9 @@ void CommandCycle_Event(){
         if(ErrorTempTEH!=0){//cant read TEH temperature
           //close after 20 sec. - to cool down a bit:
           VALVESTATUS=3; //closing
-          valveCloseTimerId = timer.setTimeout(20*1000L, ValveClose);
+          valveCloseTimerId = timer.setTimeout(20*1000L, ValveCloseDelayed);
         }else{//read KTC and decide weather TEH is cooled enough:
-          if(tempTEH!=NAN && tempTEH>50){
+          if(tempTEH>50){
             //if(valveCloseTimerId !=0 ){//no error now, clear scheduled closing:
             //  timer.deleteTimer(valveCloseTimerId);
             //}
@@ -560,7 +660,7 @@ void CommandCycle_Event(){
     case 2: //opened+off
       TEHPIDSTATUS=0; //turn off TEH
       if(VALVESTATUS==1 || VALVESTATUS==2){ //1 opened,2 opening
-        if(tempTEH!=NAN && tempTEH>50){
+        if(ErrorTempTEH==0 && tempTEH>50){
           ;//its too hot - just wait
         }else{ //now its cold:
           PROTECTIONRELAYSTATUS=0; //turn off FAN
@@ -586,7 +686,6 @@ void CommandCycle_Event(){
       if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
 	  	  if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
           if(TEHPIDSTATUS==0){ //it was off
-            TEHPID_prevtempTEH=0; //init for no PID start lags
             kPwr_preheatStart=1;
           }
           TEHPIDSTATUS=2; //turn on TEH
@@ -605,9 +704,9 @@ void CommandCycle_Event(){
     case 5: //open+fan+heat(PID)
       if(VALVESTATUS==1 || VALVESTATUS==2){ //0 opened,2 opening
 	  	  if(VALVESTATUS==1 && errorTEHOverheatError==0){ //1 opened
-          if(TEHPIDSTATUS==0){ //its turning on
-            TEHPID_prevtempTEH=0; //init for no PID start lags
-		      }
+          if(TEHPIDSTATUS!=1){ //its turning on (from off or kPwr mode)
+            TEHPID_Reset();
+          }
           TEHPIDSTATUS=1; //turn on TEH
           PROTECTIONRELAYSTATUS=1; //turn on FAN (if its on same relay as protection)
         }
@@ -622,9 +721,12 @@ void CommandCycle_Event(){
     break;
   }
 
+  if(TEHPIDSTATUS!=1)
+    AT_Abort(-1); //autotune only in PID heating mode
+
   if((TEHPIDSTATUS==0 && PROTECTIONRELAYSTATUS==0) || errorTEHOverheatError!=0){
     digitalWrite(PROTECTION_ON_PIN, LOW);
-    TEHPID_Isum=0; //clear integral part of PID
+    TEHPID_I=0; //clear integral part of PID
   }else{
 	  if(errorTEHOverheatError==0){
       digitalWrite(PROTECTION_ON_PIN, HIGH);
@@ -633,7 +735,7 @@ void CommandCycle_Event(){
 }
 
 //////////////////////CAN commands///////////////////
-char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* tmp, unsigned char len){} //empty
+char ProcessReceivedVirtualPinString(unsigned char vPinNumber, char* tmp, unsigned char len){ return 0; } //empty
 char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFloat){
   // #ifdef testmode
   // Serial.print("received CAN message: VPIN=");
@@ -682,7 +784,13 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
     case VPIN_TEHPID_Kd: TEHPID_Kd = vPinValueFloat; EEPROM_storeValues(); break;
     case VPIN_TEHPower:  TEHPower  = vPinValueFloat; EEPROM_storeValues(); break;
     case VPIN_AirOutTargetTemp: AirOutTargetTemp = vPinValueFloat; EEPROM_storeValues(); break;
-    case VPIN_SetTEHPID_Isum_Zero: TEHPID_Isum=0; break;
+    case VPIN_SetTEHPID_Isum_Zero: TEHPID_I=0; break;
+    case VPIN_TEHPID_AutoTune:
+      if(vPinValueFloat<0.5f)
+        AT_Abort(0); //0 = stopped by command
+      else if(AT_state!=1)
+        AT_Start(vPinValueFloat<1.5f ? 3 : constrain(vPinValueFloat,1.5f,5)); //power step (of 0..10)
+      break;
     case VPIN_TEH_kPwr: kPwr2Air = vPinValueFloat; EEPROM_storeValues(); break;
     case VPIN_TEH_kPwr_preMillisPerC: kPwr_preMillisPerC = vPinValueFloat; EEPROM_storeValues(); break;
     
@@ -700,9 +808,8 @@ char ProcessReceivedVirtualPinValue(unsigned char vPinNumber, float vPinValueFlo
 }
 
 //////////////////////EEPROM/////////////////////////
-void EEPROM_storeValues(){
+void EEPROM_storeValues(){ //EEPROM.put writes only changed bytes
   InsureSafeValues();
-  return;
   EEPROM.put(eepromVIAddr,eepromValueIs);
   
   //EEPROM.put(VPIN_STATUS*sizeof(float),            boardSTATUS);
@@ -718,13 +825,17 @@ void EEPROM_storeValues(){
   EEPROM.put(VPIN_AirOutTargetTemp*sizeof(float), AirOutTargetTemp);
   EEPROM.put(VPIN_TEH_kPwr*sizeof(float),   kPwr2Air);
   EEPROM.put(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),   kPwr_preMillisPerC);
+  EEPROM.put(VPIN_TEH_KdTempAirIn*sizeof(float),   KdT_TEH);
+  EEPROM.put(VPIN_HEATER_TRGSTATUS*sizeof(float),  targetHeaterStatus);
   
   //EEPROM.put(VPIN_PIDSTATUS*sizeof(float),      TEHPIDSTATUS);
   //EEPROM.put(VPIN_VALVESTATUS*sizeof(float),    VALVESTATUS);
   
 }
+float EEPROM_validFloat(float v, float vmin, float vmax, float vdefault){
+  return (isnan(v) || v<vmin || v>vmax) ? vdefault : v;
+}
 void EEPROM_restoreValues(){
-  return;
   int ival;
   EEPROM.get(eepromVIAddr,ival);
   if(ival != eepromValueIs){
@@ -749,9 +860,22 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_AirOutTargetTemp*sizeof(float),   AirOutTargetTemp);
   EEPROM.get(VPIN_TEH_kPwr*sizeof(float),       kPwr2Air);
   EEPROM.get(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),       kPwr_preMillisPerC);
+  EEPROM.get(VPIN_TEH_KdTempAirIn*sizeof(float),   KdT_TEH);
+  EEPROM.get(VPIN_HEATER_TRGSTATUS*sizeof(float),  targetHeaterStatus);
   
   //EEPROM.get(VPIN_PIDSTATUS*sizeof(float),         TEHPIDSTATUS);
   //EEPROM.get(VPIN_VALVESTATUS*sizeof(float),       VALVESTATUS);
+  if(TEHPowerPeriodSeconds<1 || TEHPowerPeriodSeconds>60) TEHPowerPeriodSeconds=2;
+  TEHPeriodMillis = (unsigned long)TEHPowerPeriodSeconds*1000L;
+  TEHPID_Kp = EEPROM_validFloat(TEHPID_Kp, 0, 100, 1);
+  TEHPID_Ki = EEPROM_validFloat(TEHPID_Ki, 0, 10, 0.003);
+  TEHPID_Kd = EEPROM_validFloat(TEHPID_Kd, 0, 1000, 0);
+  TEHPower  = EEPROM_validFloat(TEHPower, 0, 10, 0);
+  AirOutTargetTemp   = EEPROM_validFloat(AirOutTargetTemp, AirOutTargetTemp_MIN, AirOutTargetTemp_MAX, 20);
+  kPwr2Air           = EEPROM_validFloat(kPwr2Air, 0, 10, 0.34);
+  kPwr_preMillisPerC = EEPROM_validFloat(kPwr_preMillisPerC, 0, 60000, 4000);
+  KdT_TEH            = EEPROM_validFloat(KdT_TEH, minKdT_TEH, maxKdT_TEH, 2);
+  if(targetHeaterStatus<0 || targetHeaterStatus>5) targetHeaterStatus=0;
   InsureSafeValues();
 }
 
