@@ -27,7 +27,8 @@
 #define PROTECTION_ON_PIN   5 //turn on protection relay
 
 //byte space[100];
-int targetHeaterStatus =0; //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
+int targetHeaterStatus =0; //safety: never stored - after power cut always off+closed until a new command
+                            //off+close=0,1//off+open=2//fan+open=3//fan+heat(kPwr)=4//fan+heat(PID)=5
     //currentHeaterStatus=0, //0(off+closed), 1(opening), 2(opening+heating), 3(opened),
                              //4(opened+heating), 5(blowing(cooling)), 6(closing), 10(ERROR)
 int errorThermocouple=0;     //TEH overheat by thermocouple, thermocouple not giving data
@@ -826,7 +827,6 @@ void EEPROM_storeValues(){ //EEPROM.put writes only changed bytes
   EEPROM.put(VPIN_TEH_kPwr*sizeof(float),   kPwr2Air);
   EEPROM.put(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),   kPwr_preMillisPerC);
   EEPROM.put(VPIN_TEH_KdTempAirIn*sizeof(float),   KdT_TEH);
-  EEPROM.put(VPIN_HEATER_TRGSTATUS*sizeof(float),  targetHeaterStatus);
   
   //EEPROM.put(VPIN_PIDSTATUS*sizeof(float),      TEHPIDSTATUS);
   //EEPROM.put(VPIN_VALVESTATUS*sizeof(float),    VALVESTATUS);
@@ -861,7 +861,6 @@ void EEPROM_restoreValues(){
   EEPROM.get(VPIN_TEH_kPwr*sizeof(float),       kPwr2Air);
   EEPROM.get(VPIN_TEH_kPwr_preMillisPerC*sizeof(float),       kPwr_preMillisPerC);
   EEPROM.get(VPIN_TEH_KdTempAirIn*sizeof(float),   KdT_TEH);
-  EEPROM.get(VPIN_HEATER_TRGSTATUS*sizeof(float),  targetHeaterStatus);
   
   //EEPROM.get(VPIN_PIDSTATUS*sizeof(float),         TEHPIDSTATUS);
   //EEPROM.get(VPIN_VALVESTATUS*sizeof(float),       VALVESTATUS);
@@ -875,7 +874,6 @@ void EEPROM_restoreValues(){
   kPwr2Air           = EEPROM_validFloat(kPwr2Air, 0, 10, 0.34);
   kPwr_preMillisPerC = EEPROM_validFloat(kPwr_preMillisPerC, 0, 60000, 4000);
   KdT_TEH            = EEPROM_validFloat(KdT_TEH, minKdT_TEH, maxKdT_TEH, 2);
-  if(targetHeaterStatus<0 || targetHeaterStatus>5) targetHeaterStatus=0;
   InsureSafeValues();
 }
 
