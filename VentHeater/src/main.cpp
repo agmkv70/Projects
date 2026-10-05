@@ -877,6 +877,55 @@ void EEPROM_restoreValues(){
   InsureSafeValues();
 }
 
+////////////////////////////////////////////////CAN init///////////////////////////
+byte canInitOK=0;
+int  canInitTimerId=-1;
+byte CAN_Init(){ //1 = OK
+  canInitOK=0;
+  // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
+  //if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
+  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_16MHZ) != CAN_OK){ //MCP_ANY, MCP_STD, MCP_STDEXT
+    #ifdef testmode
+    Serial.println("Error Initializing CAN bus driver MCP2515...");
+    #endif
+    return 0;
+  }
+
+  //initialize filters Masks(0-1),Filters(0-5):
+  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;      //0x0F  0x010F0000;
+  // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;  //0x04  0x01040000;
+  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;  //0x04  0x01040000;
+  //receive 0x100 messages:
+  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
+  CAN0.init_Filt(1,0,0x01000000);
+
+  CAN0.init_Mask(1,0,0x01FF0000);                // Init first mask...
+  CAN0.init_Filt(2,0,0x01000000);
+  CAN0.init_Filt(3,0,0x01000000);
+  CAN0.init_Filt(4,0,0x01000000);
+  CAN0.init_Filt(5,0,0x01000000);
+  // #ifdef testmode
+  // CAN0.init_Filt(1,0,filt1);                // Init second filter...
+  // #endif
+  
+  //#ifdef testmode
+  //CAN0.setMode(MCP_LOOPBACK);
+  //#endif
+  //#ifndef testmode
+  if(CAN0.setMode(MCP_NORMAL) != MCP2515_OK)  // operation mode to normal so the MCP2515 sends acks to received data
+    return 0;
+  //#endif
+  canInitOK=1;
+  return 1;
+}
+void CAN_RetryInit(){ //timer: until CAN starts
+  if(CAN_Init()){
+    timer.deleteTimer(canInitTimerId);
+    canInitTimerId=-1;
+  }
+}
+
 ////////////////////////////////////////////////SETUP///////////////////////////
 void setup(void) {
   delay(1000);
@@ -913,41 +962,11 @@ void setup(void) {
   VALVESTATUS=1;//1=opened
   ValveClose(); //initial closing
 
-  // Initialize CAN bus MCP2515: mode = the masks and filters disabled.
-  //if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_8MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
-  if(CAN0.begin(MCP_STDEXT, CAN_250KBPS, MCP_16MHZ) == CAN_OK) //MCP_ANY, MCP_STD, MCP_STDEXT
-    ;//Serial.println("CAN bus OK: MCP2515 Initialized Successfully!");
-  else
-  {  
-    #ifdef testmode
-    Serial.println("Error Initializing CAN bus driver MCP2515...");
-    #endif
-  }
-
-  //initialize filters Masks(0-1),Filters(0-5):
-  // unsigned long mask  = (0x0100L | CAN_Unit_MASK | CAN_MSG_MASK)<<16;      //0x0F  0x010F0000;
-  // unsigned long filt0 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_UNITCMD)<<16;  //0x04  0x01040000;
-  // unsigned long filt1 = (0x0100L | CAN_Unit_FILTER_KUHFL | CAN_MSG_FILTER_INF)<<16;  //0x04  0x01040000;
-  //receive 0x100 messages:
-  CAN0.init_Mask(0,0,0x01FF0000);                // Init first mask...
-  CAN0.init_Filt(0,0,0x01000000);                // Init first filter...
-  CAN0.init_Filt(1,0,0x01000000);
-
-  CAN0.init_Mask(1,0,0x01FF0000);                // Init first mask...
-  CAN0.init_Filt(2,0,0x01000000);
-  CAN0.init_Filt(3,0,0x01000000);
-  CAN0.init_Filt(4,0,0x01000000);
-  CAN0.init_Filt(5,0,0x01000000);
-  // #ifdef testmode
-  // CAN0.init_Filt(1,0,filt1);                // Init second filter...
-  // #endif
-  
-  //#ifdef testmode
-  //CAN0.setMode(MCP_LOOPBACK);
-  //#endif
-  //#ifndef testmode
-  CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
-  //#endif
+  //CAN: at power-on MCP2515 may be not ready yet - retry, then keep retrying on timer (board must never stay silent)
+  for(byte i=0; i<10 && !CAN_Init(); i++)
+    delay(200);
+  if(!canInitOK)
+    canInitTimerId = timer.setInterval(5000L, CAN_RetryInit);
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
 
   commandTimerId = timer.setInterval(1000L, CommandCycle_Event); //500 if not test
