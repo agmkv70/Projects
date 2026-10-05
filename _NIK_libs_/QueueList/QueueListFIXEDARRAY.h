@@ -97,12 +97,14 @@ class QueueListFA {
 
     Print * printer; // the printer of the queue.
     int size;        // the size of the queue.
+    int head;        // index of the oldest item (FIFO ring buffer).
 };
 
 // init the queue (constructor).
 template<typename T>
 QueueListFA<T>::QueueListFA () {
   size = 0;       // set the size of queue to zero.
+  head = 0;
   printer = NULL; // set the printer of queue to point nowhere.
 }
 
@@ -122,7 +124,7 @@ void QueueListFA<T>::push (T* i) {
   if (size == MAX_FIXEDARRAY)
     exit ("QUEUE: insufficient fixed array size to push more.");
 
-  memcpy(&(fixedArray[size]),i,sizeof(T));
+  memcpy(&(fixedArray[(head+size)%MAX_FIXEDARRAY]),i,sizeof(T)); // add after the newest item
   // increase the items.
   size++;
 }
@@ -134,11 +136,13 @@ T* QueueListFA<T>::pop () {
   if (size==0)
     exit ("QUEUE: can't pop item from fixed array: queue is empty.");
 
-  // decrease the items.
+  // take the oldest item.
+  T* item = &(fixedArray[head]);
+  head = (head+1)%MAX_FIXEDARRAY;
   size--;
 
   // return the item.
-  return &(fixedArray[size]);
+  return item;
 }
 
 // drop an item from the queue.
@@ -148,7 +152,8 @@ void QueueListFA<T>::drop () {
   if (size==0)
     exit ("QUEUE: can't pop item from fixed array: queue is empty.");
 
-  // decrease the items.
+  // drop the oldest item.
+  head = (head+1)%MAX_FIXEDARRAY;
   size--;
 
   return;
@@ -162,7 +167,7 @@ T* QueueListFA<T>::peek () {
     exit ("QUEUE: can't peek item from fixed array: queue is empty.");
 
   // return the item of the head node.
-  return &(fixedArray[size-1]);
+  return &(fixedArray[head]);
 }
 
 // check if the queue is empty.
