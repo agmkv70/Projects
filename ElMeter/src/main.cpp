@@ -1,4 +1,4 @@
-#define _MAX_FIXEDARRAY_DEFINED 12
+#define _MAX_FIXEDARRAY_DEFINED 10 //FIFO, 50 ms spacing: 8 messages per cycle
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 
@@ -65,6 +65,11 @@ volatile float _pred_EnergyKWh=0, _corr_EnergyKWh=0, EnergyKWh_ResetValue=0; //t
 volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
 
 #define MAXRESPONSE 21
+#define BUZZER_PIN 5            //passive buzzer: power failure / return signal
+#define POWER_FAIL_V   150      //phase below = this phase is off
+#define POWER_RETURN_V 155      //all phases above = power returned (hysteresis)
+#define POWER_FAIL_NOANSWER_READS 3  //meter silent ~9 s = all phases off (meter is powered from them)
+#define POWER_REMIND_MS 60000UL //repeat alarm while power is off
 #define ELMETER_QUERY_GAP_MS 50 //pause before each request: meter misses a request sent right after its previous answer
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
@@ -80,6 +85,7 @@ int8_t ElMeter_OpenUser(byte usr);
 int8_t ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff);
 int8_t ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
 int8_t ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
+void CheckPowerState(int8_t vres, float V1, float V2, float V3);
 #ifdef HardSerial
   void SerialCleanSwap(){
     //clear read buffer
@@ -123,7 +129,9 @@ void setup(){
   //delay(1000);
 
   
-  Serial.begin(115200);
+  #if defined(testmode) || defined(testmodeS) || defined(testmodeS2) || defined(testmodeElMeter)
+    Serial.begin(115200); //only for debug output: Serial buffers cost ~175 bytes of RAM
+  #endif
     //digitalWrite(LED_BUILTIN,1);
     //delay(500);
     //digitalWrite(LED_BUILTIN,0);
@@ -186,6 +194,8 @@ void setup(){
   
   CAN0.setMode(MCP_NORMAL);  // operation mode to normal so the MCP2515 sends acks to received data
   pinMode(CAN_PIN_INT, INPUT);  // Configuring CAN0_INT pin for input
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
   
   #ifndef HardSerial
     //softserial
@@ -346,7 +356,7 @@ void loop(){
 }
 
 unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет контрольной суммы для запроса
-  volatile static unsigned int crcTable[] = {
+  static const unsigned int crcTable[] PROGMEM = { //in flash: 512 bytes of RAM saved
   0X0000, 0XC0C1, 0XC181, 0X0140, 0XC301, 0X03C0, 0X0280, 0XC241,
   0XC601, 0X06C0, 0X0780, 0XC741, 0X0500, 0XC5C1, 0XC481, 0X0440,
   0XCC01, 0X0CC0, 0X0D80, 0XCD41, 0X0F00, 0XCFC1, 0XCE81, 0X0E40,
@@ -382,7 +392,7 @@ unsigned int crc16MODBUS(volatile byte *nData, int count){ // Расчет ко�
 
   volatile unsigned int crc = 0xFFFF;
   for (int i = 0; i < count; i++){
-    crc = ((crc >> 8) ^ crcTable[(crc ^ nData[i]) & 0xFF]);
+    crc = ((crc >> 8) ^ pgm_read_word(&crcTable[(crc ^ nData[i]) & 0xFF]));
   }
   
   //#ifdef testmodeS2
@@ -974,14 +984,85 @@ void Send2ServerElMeterData(int forceSend){
   }else{
     //return;
   }
-  
+  CheckPowerState(res, V1, V2, V3);
+
   //if(millis()-millisLastReport > 10000L){
   //  millisLastReport = millis();
     //fround( , 1)
   //}
 }
 
+////////////////////////////////////////////////POWER FAIL SIGNAL///////////////////
+//passive buzzer on BUZZER_PIN; melodies play in background (tone() + timer), meter reading goes on
+//melody: freq Hz, ms, ... ; freq 1 = pause, 0 = end (chosen by listening on PC)
+const uint16_t melodyFullOff[] PROGMEM = {784,120, 1,40, 784,120, 1,40, 784,120, 1,40, 622,1000, 0}; //all off: Beethoven 5 'fate' G-G-G-Eb
+const uint16_t melodyPartial[] PROGMEM = {784,300, 1,80, 1,150, 523,500, 0};   //1-2 phases off: ding-dong
+const uint16_t melodyReturn[]  PROGMEM = {440,60, 1,25, 660,60, 1,25, 880,120, 1,100,
+                                          440,60, 1,25, 660,60, 1,25, 880,120, 0}; //power returned: quick rise x2
+const uint16_t *melodyPos=NULL;
 
+void melodyNext(){
+  uint16_t f = melodyPos ? pgm_read_word(melodyPos) : 0;
+  if(f==0){
+    noTone(BUZZER_PIN);
+    melodyPos=NULL;
+    return;
+  }
+  uint16_t ms = pgm_read_word(melodyPos+1);
+  melodyPos+=2;
+  if(f==1) noTone(BUZZER_PIN);
+  else     tone(BUZZER_PIN, f, ms);
+  if(timer.setTimeout(ms, melodyNext) < 0) //no free timer slot - stop, don't get stuck
+    melodyPos=NULL;
+}
+void playMelody(const uint16_t *m){
+  if(melodyPos) return; //already playing
+  melodyPos=m;
+  melodyNext();
+}
 
+//values are sent to Blynk as is (one pin VPIN_ElMeter_PowerFail): 0 = no failure
+#define POWER_UNKNOWN -1
+#define POWER_OK       0
+#define POWER_PARTIAL  1 //1 or 2 phases off
+#define POWER_FULLOFF  2 //all phases off (or meter silent - it is powered from phases)
+int8_t powerState=POWER_UNKNOWN, powerCond=POWER_UNKNOWN; //state, and condition being confirmed
+byte powerCondReads=0, powerNoAnswerReads=0;
+unsigned long powerLastAlarmMillis=0;
 
+void powerSignal(int8_t state){
+  powerLastAlarmMillis=millis();
+  playMelody(state==POWER_FULLOFF ? melodyFullOff : state==POWER_PARTIAL ? melodyPartial : melodyReturn);
+}
+void CheckPowerState(int8_t vres, float V1, float V2, float V3){ //called every voltage read (3 s)
+  int8_t cond = POWER_UNKNOWN; //unknown = keep state (single missed answer, voltage between thresholds)
+  if(vres==1){
+    powerNoAnswerReads=0;
+    byte nLow = (V1<POWER_FAIL_V) + (V2<POWER_FAIL_V) + (V3<POWER_FAIL_V);
+    if(nLow==3)      cond = POWER_FULLOFF;
+    else if(nLow>0)  cond = POWER_PARTIAL;
+    else if(V1>=POWER_RETURN_V && V2>=POWER_RETURN_V && V3>=POWER_RETURN_V) cond = POWER_OK;
+  }else{
+    if(powerNoAnswerReads<100) powerNoAnswerReads++;
+    if(powerNoAnswerReads>=POWER_FAIL_NOANSWER_READS) cond = POWER_FULLOFF;
+  }
 
+  //confirm: same condition 2 reads in a row (no-answer is already confirmed by its count)
+  if(cond==POWER_UNKNOWN || cond!=powerCond){
+    powerCond=cond;
+    powerCondReads = (cond==POWER_UNKNOWN) ? 0 : 1;
+  }else if(powerCondReads<100) powerCondReads++;
+  byte confirmed = powerCondReads>=2 || (cond==POWER_FULLOFF && vres!=1);
+
+  if(confirmed && cond!=powerState){
+    int8_t prev=powerState;
+    powerState=cond;
+    if(!(prev==POWER_UNKNOWN && cond==POWER_OK)) //start with power ok: silently
+      powerSignal(cond);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_PowerFail, powerState);
+  }else if((powerState==POWER_FULLOFF || powerState==POWER_PARTIAL)
+           && millis()-powerLastAlarmMillis >= POWER_REMIND_MS){ //remind while power is (partly) off
+    powerSignal(powerState);
+    addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_PowerFail, powerState);
+  }
+}

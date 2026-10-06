@@ -137,6 +137,7 @@ int boardSTATUS = Status_Auto1;
 #define VPIN_ElMeter_EnergyKWh_cor  120
 #define VPIN_ElMeter_EnergyKWh1_cor 121
 #define VPIN_ElMeter_EnergyKWh2_cor 122
+#define VPIN_ElMeter_PowerFail      133 //0 = ok, 1 = 1-2 phases off (<150 V), 2 = all phases off (or meter silent)
 
 #define VPIN_Floor_ECHO     123
 
