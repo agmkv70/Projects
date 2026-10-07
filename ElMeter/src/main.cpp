@@ -86,6 +86,7 @@ int8_t ElMeter_GetEnergyA(volatile float *ActiveWh,byte tariff);
 int8_t ElMeter_GetInstantPower(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
 int8_t ElMeter_GetInstantVoltage(volatile float *Ph1,volatile float *Ph2,volatile float *Ph3);
 void CheckPowerState(int8_t vres, float V1, float V2, float V3);
+void playBootBeep();
 #ifdef HardSerial
   void SerialCleanSwap(){
     //clear read buffer
@@ -220,6 +221,7 @@ void setup(){
     timer.deleteTimer(i);
   }*/
   timer.setInterval(3000L, Send2ServerElMeterDataCallback); 
+  playBootBeep(); //speaker test on every start
   #ifdef testmodeS
     Log.println("***setup end***");
     //Serial.flush();
@@ -999,6 +1001,7 @@ const uint16_t melodyFullOff[] PROGMEM = {784,120, 1,40, 784,120, 1,40, 784,120,
 const uint16_t melodyPartial[] PROGMEM = {784,300, 1,80, 1,150, 523,500, 0};   //1-2 phases off: ding-dong
 const uint16_t melodyReturn[]  PROGMEM = {440,60, 1,25, 660,60, 1,25, 880,120, 1,100,
                                           440,60, 1,25, 660,60, 1,25, 880,120, 0}; //power returned: quick rise x2
+const uint16_t melodyBoot[]    PROGMEM = {784,80, 1,80, 784,80, 0};             //start: speaker test, 2 short beeps
 const uint16_t *melodyPos=NULL;
 
 void melodyNext(){
@@ -1019,6 +1022,9 @@ void playMelody(const uint16_t *m){
   if(melodyPos) return; //already playing
   melodyPos=m;
   melodyNext();
+}
+void playBootBeep(){
+  playMelody(melodyBoot);
 }
 
 //values are sent to Blynk as is (one pin VPIN_ElMeter_PowerFail): 0 = no failure
