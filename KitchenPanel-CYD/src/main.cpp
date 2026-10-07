@@ -65,7 +65,9 @@ static constexpr uint8_t kBrightness = 100;
 static constexpr uint32_t kPollSpacingMs = 400;    // one pin per step, 6 pins
 static constexpr uint32_t kSendSpacingMs = 250;    // while dragging
 static constexpr uint32_t kHoldAfterSendMs = 3000; // ignore polls of a pin we just set
-static constexpr uint32_t kStaleMs = 15000;        // grey out values older than this
+// Grey out a value not read for this long, and call the server down after this
+// long without any answer. One failed request must not flash the screen grey.
+static constexpr uint32_t kStaleMs = 30000;
 static constexpr uint16_t kHttpTimeoutMs = 1200;
 static constexpr uint32_t kTouchFlashMs = 50;
 
@@ -73,6 +75,8 @@ static constexpr uint32_t kTouchFlashMs = 50;
 static constexpr float kBatteryAh = 250.0f;
 static constexpr float kReservePercent = 10.0f;
 static constexpr int kIdleWatts = 5;   // |W| below this counts as idle
+// The estimate uses the average power of this window, not the last reading.
+static constexpr uint32_t kPowerWindowMs = 60000;
 
 // ---------------------------------------------------------------------------
 // Display
@@ -323,6 +327,31 @@ static void gtMapToScreen(int32_t nx, int32_t ny, int32_t* sx, int32_t* sy) {
 
 static bool fresh(uint32_t at) { return at != 0 && millis() - at < kStaleMs; }
 
+// Power readings of the last minute (one about every 2.4 s), for the estimate.
+static constexpr int kPowerSlots = 40;
+static float gPowerW[kPowerSlots];
+static uint32_t gPowerAt[kPowerSlots];
+static int gPowerNext = 0;
+
+static void addPowerSample(float w) {
+  gPowerW[gPowerNext] = w;
+  gPowerAt[gPowerNext] = millis();
+  gPowerNext = (gPowerNext + 1) % kPowerSlots;
+}
+
+// Average over the window; NAN when there is nothing recent to average.
+static float averagePower() {
+  float sum = 0;
+  int n = 0;
+  for (int i = 0; i < kPowerSlots; i++) {
+    if (gPowerAt[i] != 0 && millis() - gPowerAt[i] <= kPowerWindowMs) {
+      sum += gPowerW[i];
+      n++;
+    }
+  }
+  return n > 0 ? sum / n : NAN;
+}
+
 static uint32_t socColour(float soc) {
   if (soc < 20) return kSocLow;
   if (soc < 40) return kSocMid;
@@ -395,15 +424,23 @@ static void drawBatteryInfo() {
   // or until full while charging. Current = power / voltage.
   char est[24] = "";
   uint32_t estColour = kDimText;
-  if (arrow != 0 && !isnan(gBat.soc) && !isnan(gBat.volts) && gBat.volts > 1.0f) {
-    float amps = fabsf(gBat.watts) / gBat.volts;
-    float ah = arrow < 0 ? kBatteryAh * (gBat.soc - kReservePercent) / 100.0f
-                         : kBatteryAh * (100.0f - gBat.soc) / 100.0f;
-    if (ah < 0) ah = 0;
-    float hours = ah / amps;
-    const char* what = arrow < 0 ? "est." : "full";
-    if (hours > 999.9f) snprintf(est, sizeof(est), "%s >999 h", what);
-    else snprintf(est, sizeof(est), "%s %.1f h", what, hours);
+  const float avgW = averagePower();
+  if (!isnan(avgW) && !isnan(gBat.soc) && !isnan(gBat.volts) && gBat.volts > 1.0f) {
+    const bool charging = avgW >= kIdleWatts;
+    const bool discharging = avgW <= -kIdleWatts;
+    if (charging && gBat.soc >= 99.5f) {
+      snprintf(est, sizeof(est), "charged");
+    } else if (discharging && gBat.soc <= kReservePercent) {
+      snprintf(est, sizeof(est), "reserve");
+    } else if (charging || discharging) {
+      float amps = fabsf(avgW) / gBat.volts;
+      float ah = discharging ? kBatteryAh * (gBat.soc - kReservePercent) / 100.0f
+                             : kBatteryAh * (100.0f - gBat.soc) / 100.0f;
+      float hours = ah / amps;
+      const char* what = discharging ? "est." : "full";
+      if (hours > 999.9f) snprintf(est, sizeof(est), "%s >999 h", what);
+      else snprintf(est, sizeof(est), "%s %.1f h", what, hours);
+    }
     bool estFresh = fresh(gBat.wattsAt) && fresh(gBat.voltsAt) && fresh(gBat.socAt);
     estColour = estFresh ? kText : kStaleText;
   }
@@ -576,8 +613,8 @@ static bool blynkGet(uint8_t vpin, float* value) {
   String body;
   int code = httpGet(String("/") + BLYNK_TOKEN + "/get/V" + vpin, &body);
   if (code < 0) {
-    setServerOk(false);
-    return false;
+    Serial.printf("GET V%u failed %d\n", vpin, code);
+    return false;   // the loop calls the server down only after kStaleMs
   }
   setServerOk(true);   // the server answered; the pin may still be empty
   if (code != 200) return false;
@@ -594,7 +631,7 @@ static bool blynkGet(uint8_t vpin, float* value) {
 
 static bool blynkUpdate(uint8_t vpin, int value) {
   int code = httpGet(String("/") + BLYNK_TOKEN + "/update/V" + vpin + "?value=" + value, nullptr);
-  setServerOk(code > 0);
+  if (code > 0) setServerOk(true);
   Serial.printf("update V%u=%d -> %d\n", vpin, value, code);
   return code == 200;
 }
@@ -617,7 +654,11 @@ static void pollNext() {
       drawBatteryInfo();
       break;
     case 2:
-      if (blynkGet(129, &v)) { gBat.watts = v; gBat.wattsAt = millis(); }
+      if (blynkGet(129, &v)) {
+        gBat.watts = v;
+        gBat.wattsAt = millis();
+        addPowerSample(v);
+      }
       drawBatteryInfo();
       break;
     default: {
@@ -782,8 +823,6 @@ void loop() {
       lastPoll = millis();
       pollNext();
     }
-  } else if (gServerOk) {
-    setServerOk(false);
   }
 
   // Refresh the status line (RSSI) and grey out stale values now and then.
@@ -791,6 +830,9 @@ void loop() {
     lastStatus = millis();
     drawStatus();
     if (gServerOk && millis() - gLastServerOk > kStaleMs) setServerOk(false);
+    // Values that stopped arriving (Wi-Fi down, say) turn grey even without a poll.
+    drawBattery();
+    drawBatteryInfo();
   }
 
   delay(2);
