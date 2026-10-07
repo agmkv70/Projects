@@ -69,7 +69,7 @@ volatile float _corr_EnergyKWh1=0,_corr_EnergyKWh2=0;
 #define POWER_FAIL_V   150      //phase below = this phase is off
 #define POWER_RETURN_V 155      //all phases above = power returned (hysteresis)
 #define POWER_FAIL_NOANSWER_READS 3  //meter silent ~9 s = all phases off (meter is powered from them)
-#define POWER_REMIND_MS 60000UL //repeat alarm while power is off
+#define POWER_REMIND_MS 300000UL //5 min: repeat partial (phase) failure signal, not more often; full off sounds only on change
 #define ELMETER_QUERY_GAP_MS 50 //pause before each request: meter misses a request sent right after its previous answer
 volatile byte response[MAXRESPONSE+4]; // длина массива входящего сообщения
 volatile byte address_cmd_crc[MAXRESPONSE+4];
@@ -1066,8 +1066,8 @@ void CheckPowerState(int8_t vres, float V1, float V2, float V3){ //called every 
     if(!(prev==POWER_UNKNOWN && cond==POWER_OK)) //start with power ok: silently
       powerSignal(cond);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_PowerFail, powerState);
-  }else if((powerState==POWER_FULLOFF || powerState==POWER_PARTIAL)
-           && millis()-powerLastAlarmMillis >= POWER_REMIND_MS){ //remind while power is (partly) off
+  }else if(powerState==POWER_PARTIAL
+           && millis()-powerLastAlarmMillis >= POWER_REMIND_MS){ //remind while phase(s) off; full off - only on change
     powerSignal(powerState);
     addCANMessage2Queue( CAN_Unit_FILTER_ESPWF | CAN_MSG_FILTER_INF, VPIN_ElMeter_PowerFail, powerState);
   }
