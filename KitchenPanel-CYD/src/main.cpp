@@ -69,6 +69,11 @@ static constexpr uint32_t kStaleMs = 15000;        // grey out values older than
 static constexpr uint16_t kHttpTimeoutMs = 1200;
 static constexpr uint32_t kTouchFlashMs = 50;
 
+// Time estimate: 250 Ah pack, and the last 10 % are kept in reserve.
+static constexpr float kBatteryAh = 250.0f;
+static constexpr float kReservePercent = 10.0f;
+static constexpr int kIdleWatts = 5;   // |W| below this counts as idle
+
 // ---------------------------------------------------------------------------
 // Display
 // ---------------------------------------------------------------------------
@@ -138,17 +143,24 @@ static LGFX_Sprite gLineSprite(&gfx);   // voltage/power line, also the status l
 // ---------------------------------------------------------------------------
 // Colours
 // ---------------------------------------------------------------------------
-static constexpr uint32_t kBg = 0x000000;
-static constexpr uint32_t kPanelBg = 0x141414;
-static constexpr uint32_t kText = 0xFFFFFF;
-static constexpr uint32_t kDimText = 0x9E9E9E;
-static constexpr uint32_t kStaleText = 0x5A5A5A;
-static constexpr uint32_t kTrack = 0x3A3A3A;
-static constexpr uint32_t kSocRed = 0xE53935;
-static constexpr uint32_t kSocOrange = 0xFB8C00;
-static constexpr uint32_t kSocGreen = 0x43A047;
-static constexpr uint32_t kCharging = 0x66BB6A;
-static constexpr uint32_t kDischarging = 0xFFA726;
+// Palette FFB343 amber, 42EAFF cyan, 4272FF blue, FF7E42 orange on white.
+static constexpr uint32_t kAmber = 0xFFB343;
+static constexpr uint32_t kCyan = 0x42EAFF;
+static constexpr uint32_t kBlue = 0x4272FF;
+static constexpr uint32_t kOrange = 0xFF7E42;
+
+static constexpr uint32_t kBg = 0xFFFFFF;
+static constexpr uint32_t kPanelBg = 0xEEEEEE;
+static constexpr uint32_t kText = 0x202020;
+static constexpr uint32_t kDimText = 0x6E6E6E;
+static constexpr uint32_t kStaleText = 0xB4B4B4;
+static constexpr uint32_t kTrack = 0xE0E0E0;
+static constexpr uint32_t kSocLow = kOrange;     // < 20 %
+static constexpr uint32_t kSocMid = kAmber;      // < 40 %
+static constexpr uint32_t kSocOk = kBlue;
+static constexpr uint32_t kCharging = kBlue;
+static constexpr uint32_t kDischarging = kOrange;
+// Cyan is too light for text on white, so it is only ever a fill.
 
 // ---------------------------------------------------------------------------
 // State
@@ -167,9 +179,9 @@ struct Slider {
 };
 
 static Slider gSliders[] = {
-    {"Sink",    45, 60, 0xFFE082, 0, false, false, 0, 0},
-    {"Cooktop", 44, 60, 0xFFCC80, 0, false, false, 0, 0},
-    {"Hallway", 43, 10, 0xE53935, 0, false, false, 0, 0},
+    {"Sink",    45, 60, kAmber, 0, false, false, 0, 0},
+    {"Cooktop", 44, 60, kCyan, 0, false, false, 0, 0},
+    {"Hallway", 43, 10, kOrange, 0, false, false, 0, 0},
 };
 static constexpr int kSliderCount = sizeof(gSliders) / sizeof(gSliders[0]);
 
@@ -190,9 +202,9 @@ static int gDragging = -1;          // slider index while a finger is on it
 // ---------------------------------------------------------------------------
 // Layout (landscape 480x320)
 // ---------------------------------------------------------------------------
-static constexpr int kBarX = 16, kBarY = 12, kBarW = 440, kBarH = 70;
-static constexpr int kInfoY = 92, kInfoH = 34;
-static constexpr int kRowsY = 136, kRowH = 54;
+static constexpr int kBarX = 16, kBarY = 12, kBarW = 448, kBarH = 44;
+static constexpr int kInfoY = 64, kInfoH = 34;
+static constexpr int kRowsY = 104, kRowH = 62;
 static constexpr int kLabelW = 128;                     // label column
 static constexpr int kRowSpriteX = kLabelW;             // sprite covers the rest
 static constexpr int kTrackX = 18, kTrackW = 250;       // inside the row sprite
@@ -312,9 +324,9 @@ static void gtMapToScreen(int32_t nx, int32_t ny, int32_t* sx, int32_t* sy) {
 static bool fresh(uint32_t at) { return at != 0 && millis() - at < kStaleMs; }
 
 static uint32_t socColour(float soc) {
-  if (soc < 20) return kSocRed;
-  if (soc < 40) return kSocOrange;
-  return kSocGreen;
+  if (soc < 20) return kSocLow;
+  if (soc < 40) return kSocMid;
+  return kSocOk;
 }
 
 static void drawBattery() {
@@ -330,30 +342,22 @@ static void drawBattery() {
   lastSoc = socShown;
   lastOk = ok;
 
+  // A plain rounded bar like the slider tracks: light grey, filled in colour.
   s.fillScreen(kBg);
-  // Body and terminal nub.
-  s.drawRoundRect(0, 0, kBarW - 12, kBarH, 8, ok ? kText : kStaleText);
-  s.drawRoundRect(1, 1, kBarW - 14, kBarH - 2, 7, ok ? kText : kStaleText);
-  s.fillRoundRect(kBarW - 11, kBarH / 2 - 14, 10, 28, 3, ok ? kText : kStaleText);
-
-  if (known) {
-    int inner = kBarW - 12 - 10;
-    int w = inner * socShown / 100;
-    if (w > 0) s.fillRoundRect(5, 5, w, kBarH - 10, 5, ok ? socColour(socShown) : kTrack);
+  s.fillRoundRect(0, 0, kBarW, kBarH, kBarH / 2, kTrack);
+  if (known && socShown > 0) {
+    // Never narrower than the rounded ends, so a low charge still shows a sliver.
+    int w = max(kBarH, kBarW * socShown / 100);
+    s.fillRoundRect(0, 0, w, kBarH, kBarH / 2, ok ? socColour(socShown) : kStaleText);
   }
 
   char text[12];
-  if (known) snprintf(text, sizeof(text), "%d%%", socShown);
-  else snprintf(text, sizeof(text), "--%%");
-  s.setFont(&fonts::FreeSansBold24pt7b);
+  if (known) snprintf(text, sizeof(text), "%d %%", socShown);
+  else snprintf(text, sizeof(text), "-- %%");
+  s.setFont(&fonts::FreeSansBold18pt7b);
   s.setTextDatum(textdatum_t::middle_center);
-  // A dark outline keeps the number readable over both the fill and the empty part.
-  s.setTextColor(0x000000);
-  for (int dx = -2; dx <= 2; dx += 2)
-    for (int dy = -2; dy <= 2; dy += 2)
-      s.drawString(text, (kBarW - 12) / 2 + dx, kBarH / 2 + dy);
   s.setTextColor(ok ? kText : kDimText);
-  s.drawString(text, (kBarW - 12) / 2, kBarH / 2);
+  s.drawString(text, kBarW / 2, kBarH / 2);
 
   s.pushSprite(kBarX, kBarY);
 }
@@ -365,7 +369,7 @@ static void drawBatteryInfo() {
   else snprintf(volts, sizeof(volts), "-- V");
   uint32_t voltsColour = fresh(gBat.voltsAt) ? kText : kStaleText;
 
-  // Power, right: + charging (green, up arrow), - discharging (orange, down).
+  // Power, right: + charging (blue, up arrow), - discharging (orange, down).
   char power[32];
   uint32_t colour = kDimText;
   int arrow = 0;   // +1 up, -1 down, 0 none
@@ -373,12 +377,12 @@ static void drawBatteryInfo() {
     snprintf(power, sizeof(power), "-- W");
   } else {
     int w = (int)lroundf(gBat.watts);
-    if (w >= 5) {
-      snprintf(power, sizeof(power), "+%d W charging", w);
+    if (w >= kIdleWatts) {
+      snprintf(power, sizeof(power), "+%d W chg.", w);
       colour = kCharging;
       arrow = 1;
-    } else if (w <= -5) {
-      snprintf(power, sizeof(power), "%d W discharging", w);
+    } else if (w <= -kIdleWatts) {
+      snprintf(power, sizeof(power), "%d W disch.", w);
       colour = kDischarging;
       arrow = -1;
     } else {
@@ -387,18 +391,39 @@ static void drawBatteryInfo() {
   }
   if (!fresh(gBat.wattsAt)) colour = kStaleText;
 
+  // Estimate, middle: hours until the reserve is reached while discharging,
+  // or until full while charging. Current = power / voltage.
+  char est[24] = "";
+  uint32_t estColour = kDimText;
+  if (arrow != 0 && !isnan(gBat.soc) && !isnan(gBat.volts) && gBat.volts > 1.0f) {
+    float amps = fabsf(gBat.watts) / gBat.volts;
+    float ah = arrow < 0 ? kBatteryAh * (gBat.soc - kReservePercent) / 100.0f
+                         : kBatteryAh * (100.0f - gBat.soc) / 100.0f;
+    if (ah < 0) ah = 0;
+    float hours = ah / amps;
+    const char* what = arrow < 0 ? "est." : "full";
+    if (hours > 999.9f) snprintf(est, sizeof(est), "%s >999 h", what);
+    else snprintf(est, sizeof(est), "%s %.1f h", what, hours);
+    bool estFresh = fresh(gBat.wattsAt) && fresh(gBat.voltsAt) && fresh(gBat.socAt);
+    estColour = estFresh ? kText : kStaleText;
+  }
+
   // Redraw only when the visible text or colours change.
   static char lastVolts[16] = "";
   static char lastPower[32] = "";
-  static uint32_t lastVoltsColour = 1, lastColour = 1;
+  static char lastEst[24] = "";
+  static uint32_t lastVoltsColour = 1, lastColour = 1, lastEstColour = 1;
   if (strcmp(volts, lastVolts) == 0 && strcmp(power, lastPower) == 0 &&
-      voltsColour == lastVoltsColour && colour == lastColour) {
+      strcmp(est, lastEst) == 0 && voltsColour == lastVoltsColour &&
+      colour == lastColour && estColour == lastEstColour) {
     return;
   }
   strcpy(lastVolts, volts);
   strcpy(lastPower, power);
+  strcpy(lastEst, est);
   lastVoltsColour = voltsColour;
   lastColour = colour;
+  lastEstColour = estColour;
 
   LGFX_Sprite& s = gLineSprite;
   const int cy = kInfoH / 2;
@@ -408,17 +433,27 @@ static void drawBatteryInfo() {
   s.setTextDatum(textdatum_t::middle_left);
   s.setTextColor(voltsColour);
   s.drawString(volts, kBarX, cy);
+  const int voltsEnd = kBarX + s.textWidth(volts);
 
-  const int right = kBarX + kBarW - 12;
+  const int right = kBarX + kBarW;
   s.setTextDatum(textdatum_t::middle_right);
   s.setTextColor(colour);
   int textW = s.textWidth(power);
   s.drawString(power, right, cy);
+  int powerStart = right - textW;
 
   if (arrow != 0) {
     int ax = right - textW - 18;
     if (arrow > 0) s.fillTriangle(ax - 9, cy + 7, ax + 9, cy + 7, ax, cy - 9, colour);
     else s.fillTriangle(ax - 9, cy - 7, ax + 9, cy - 7, ax, cy + 9, colour);
+    powerStart = ax - 12;
+  }
+
+  // The estimate sits centred in whatever room the two sides leave.
+  if (est[0]) {
+    s.setTextDatum(textdatum_t::middle_center);
+    s.setTextColor(estColour);
+    s.drawString(est, (voltsEnd + powerStart) / 2, cy);
   }
 
   s.pushSprite(0, kInfoY);
@@ -490,7 +525,7 @@ static void drawStatus() {
   s.drawString(line, 8, cy);
   if (gTouchAddr == 0) {
     s.setTextDatum(textdatum_t::middle_right);
-    s.setTextColor(kSocRed);
+    s.setTextColor(kOrange);
     s.drawString("TOUCH NOT FOUND", s.width() - 8, cy);
   }
   s.pushSprite(0, kStatusY);
