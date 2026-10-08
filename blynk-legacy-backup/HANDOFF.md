@@ -40,6 +40,11 @@ Keep a legacy Blynk server (Java, 0.41.17) running on an Orange Pi with a small 
 - The first deployed selfheal jar had log4j 2.14.1 (Log4Shell-vulnerable). Peterkn2001 source stops at 2021-05-30; the official v0.41.17 release (2021-12-14, d7e0b6c2) = same code + log4j 2.15.0, then 087b7588 log4j 2.16.0 and 8faff068 one-line NPE fix in Image widget. The archive server-0.41.17.jar (Build-Number 0.41.18-SNAPSHOT, built by doom369) has the fixed log4j. Official history to 2022-06 is in github.com/gablau/blynk-server (later commits remove local backups - do NOT take those).
 - Fix: set log4j2.version to 2.17.1 (+ optional Image NPE fix), rebuild, redeploy. Old 0.41.12 was vulnerable too, so not a regression.
 
+## SSH brute force incident + guard (2026-10-07/08)
+- Router forwarded port 22 to the Pi; ~25k failed root logins/day from one /24 since at least Oct 5. On the evening of Oct 7 it saturated the CPU (SSH dropped/hung, app TLS stalled, ping loss). No successful outside login in the saved logs (/var/log is zram; Armbian copies to /var/log.hdd), no changed system files. Port 22 forward removed by the user; Pi power-cycled.
+- Guard: /usr/local/sbin/ssh-guard.sh + ssh-guard.service (enabled). iptables/ip6tables chain SSHGUARD on tcp/22: LAN 192.168.0.0/16 and link-local exempt; otherwise >4 new connections in 60 s = 1 h ban (xt_recent lists sshtry/sshban, see /proc/net/xt_recent/). Only its own chain is rebuilt; SoftEther VPN's OUTPUT rules are untouched.
+- sshd_config: MaxAuthTries 3, LoginGraceTime 30 (backup sshd_config.bak-2026-10-08). Root still logs in with a password; key-only root was suggested, not done.
+
 ## Not done / next
 - Reboot tested 2026-10-07 14:13: rc.local started the new server, hardware and app rejoined within seconds, user confirmed the app works.
 - Cleaned up: /root/blynktest, /root/deploy.sh, a stray file from the key setup. Backups and old jar kept on purpose.
