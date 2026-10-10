@@ -51,10 +51,15 @@ static constexpr int kPinLedBlue  = 17;
 static constexpr int kPanelWidth = 320;   // native portrait
 static constexpr int kPanelHeight = 480;
 
-// Touch orientation for setRotation(1): bit 0 swaps axes, bit 1 flips x, bit 2
-// flips y. KeyLang uses MAP 1, but it only ever reads x (three columns), so its
-// inverted y went unnoticed; on this board's sliders it showed: 1|4 = 5.
-static constexpr uint8_t kMapMode = 5;
+// Screen orientation: 1 and 3 are the two landscapes (3 = turned 180 degrees,
+// the way the panel is mounted).
+static constexpr uint8_t kRotation = 3;
+
+// Touch orientation: bit 0 swaps axes, bit 1 flips x, bit 2 flips y.
+// Rotation 1 needs 5 (swap + flip y; KeyLang's MAP 1 has y inverted, unnoticed
+// there because it only reads x). Turning the screen 180 degrees flips both
+// axes once more: 5 ^ 6 = 3.
+static constexpr uint8_t kMapMode = kRotation == 3 ? 3 : 5;
 
 // Backlight 100 of 255: the panel draws a lot and browns out on weak USB.
 static constexpr uint8_t kBrightness = 100;
@@ -70,6 +75,14 @@ static constexpr uint32_t kHoldAfterSendMs = 3000; // ignore polls of a pin we j
 static constexpr uint32_t kStaleMs = 30000;
 static constexpr uint16_t kHttpTimeoutMs = 1200;
 static constexpr uint32_t kTouchFlashMs = 50;
+
+// Wi-Fi watchdog. The core's own auto-reconnect sometimes never comes back
+// (seen after a router reboot), so: restart the connection attempt every 30 s
+// while down, reboot after 3 min down, and reboot if the server has not
+// answered for 15 min while Wi-Fi is up.
+static constexpr uint32_t kWifiRetryMs = 30000;
+static constexpr uint32_t kWifiRebootMs = 180000;
+static constexpr uint32_t kServerRebootMs = 900000;
 
 // Time estimate: 250 Ah pack, and the last 10 % are kept in reserve.
 static constexpr float kBatteryAh = 250.0f;
@@ -764,7 +777,7 @@ void setup() {
   if (gTouchAddr) gtWrite(kGtRegStatus, 0);
 
   gfx.init();
-  gfx.setRotation(1);   // landscape 480x320
+  gfx.setRotation(kRotation);   // landscape 480x320
   gfx.setBrightness(kBrightness);
 
   // Sprites before Wi-Fi, while the heap is still in one piece.
@@ -787,6 +800,12 @@ void setup() {
                 ESP.getFreeHeap(), gBarSprite.getColorDepth(), gRowSprite.getColorDepth(),
                 gLineSprite.getColorDepth());
 
+  // Log why the link drops (reason codes: esp_wifi_types.h, e.g. 200 beacon
+  // timeout, 201 no AP found, 15 4-way handshake timeout).
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("Wi-Fi disconnected, reason %u\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);          // keeps HTTP latency low and steady
   WiFi.setAutoReconnect(true);
@@ -800,6 +819,8 @@ void loop() {
   static uint32_t lastPoll = 0;
   static uint32_t lastStatus = 0;
   static wl_status_t lastWifi = WL_IDLE_STATUS;
+  static uint32_t wifiDownSince = 0;
+  static uint32_t lastWifiKick = 0;
 
   pumpTouch();
 
@@ -813,6 +834,30 @@ void loop() {
     lastWifi = wifi;
     Serial.printf("Wi-Fi status %d %s\n", wifi, WiFi.localIP().toString().c_str());
     drawStatus();
+  }
+
+  if (wifi != WL_CONNECTED) {
+    if (wifiDownSince == 0) wifiDownSince = millis();
+    uint32_t down = millis() - wifiDownSince;
+    if (down > kWifiRebootMs) {
+      Serial.println("Wi-Fi down for 3 min - rebooting");
+      delay(50);
+      ESP.restart();
+    }
+    if (down > kWifiRetryMs && millis() - lastWifiKick > kWifiRetryMs) {
+      lastWifiKick = millis();
+      Serial.println("Wi-Fi still down - restarting the connection");
+      WiFi.disconnect();
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+  } else {
+    wifiDownSince = 0;
+    // Wi-Fi up but the server silent for long: the network stack may be wedged.
+    if (millis() - gLastServerOk > kServerRebootMs) {
+      Serial.println("No answer from Blynk for 15 min - rebooting");
+      delay(50);
+      ESP.restart();
+    }
   }
 
   if (wifi == WL_CONNECTED) {
